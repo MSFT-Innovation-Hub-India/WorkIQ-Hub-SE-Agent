@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WorkIQ Assistant</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  :root {
+    --accent: #0078D4;
+    --accent-light: #E8F4FD;
+    --bg: #F5F5F5;
+    --card-bg: #FFFFFF;
+    --text: #1A1A1A;
+    --text-secondary: #666;
+    --border: #E0E0E0;
+    --user-bubble: #0078D4;
+    --agent-bubble: #FFFFFF;
+    --success: #107C10;
+    --error: #D13438;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Header */
+  .header {
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    -webkit-app-region: drag;
+  }
+  .header-icon {
+    width: 32px; height: 32px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .header-icon img { width: 100%; height: 100%; object-fit: cover; }
+  .header-text { flex: 1; }
+  .header-text h1 { font-size: 14px; font-weight: 600; }
+  .new-chat-btn {
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 10px; font-size: 11px; color: var(--text-secondary);
+    cursor: pointer; -webkit-app-region: no-drag;
+    transition: all 0.15s;
+  }
+  .new-chat-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .header-text .status {
+    font-size: 11px; color: var(--text-secondary);
+  }
+  .status-dot {
+    display: inline-block; width: 6px; height: 6px;
+    border-radius: 50%; margin-right: 4px;
+    background: var(--text-secondary);
+    vertical-align: middle;
+  }
+  .status-dot.connected { background: var(--success); }
+  .status-dot.working { background: #FF8C00; animation: pulse 1s infinite; }
+  .status-dot.error { background: var(--error); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Chat area */
+  .chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .message {
+    max-width: 85%;
+    animation: fadeIn 0.2s ease;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .message.user { align-self: flex-end; }
+  .message.agent { align-self: flex-start; }
+
+  .bubble {
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+  }
+  .message.user .bubble {
+    background: var(--user-bubble);
+    color: white;
+    border-bottom-right-radius: 4px;
+  }
+  .message.agent .bubble {
+    background: var(--agent-bubble);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+
+  .msg-time {
+    font-size: 10px; color: var(--text-secondary);
+    margin-top: 3px; padding: 0 4px;
+  }
+  .message.user .msg-time { text-align: right; }
+
+  /* Progress steps inside agent bubble */
+  .progress-step {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 4px 0; font-size: 12px;
+  }
+  .progress-step .step-icon {
+    flex-shrink: 0; width: 18px; height: 18px;
+    border-radius: 50%; display: flex;
+    align-items: center; justify-content: center;
+    font-size: 10px; margin-top: 1px;
+  }
+  .step-icon.working {
+    background: #FFF4CE; color: #FF8C00;
+    animation: pulse 1s infinite;
+  }
+  .step-icon.done { background: #DFF6DD; color: var(--success); }
+  .step-icon.error { background: #FDE7E9; color: var(--error); }
+
+  /* Agent badge */
+  .agent-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600;
+    margin: 4px 0 6px 0;
+  }
+  .agent-badge .agent-icon {
+    font-size: 12px;
+  }
+  .agent-badge.qa {
+    background: #E8F4FD; color: #0078D4;
+  }
+  .agent-badge.meeting {
+    background: #DFF6DD; color: #107C10;
+  }
+  .agent-badge.general {
+    background: #F3F2F1; color: #666;
+  }
+
+  /* Input area */
+  .input-area {
+    background: var(--card-bg);
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+  .input-area textarea {
+    flex: 1; resize: none; border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 14px;
+    font-family: inherit; font-size: 13px;
+    outline: none; max-height: 100px; min-height: 40px;
+    transition: border-color 0.15s;
+  }
+  .input-area textarea:focus { border-color: var(--accent); }
+  .input-area textarea::placeholder { color: #999; }
+
+  .send-btn {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: var(--accent); border: none;
+    color: white; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+    flex-shrink: 0;
+  }
+  .send-btn:hover { background: #106EBE; }
+  .send-btn:disabled { background: #CCC; cursor: not-allowed; }
+  .send-btn svg { width: 18px; height: 18px; }
+
+  /* Welcome state */
+  .welcome {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: var(--text-secondary); text-align: center;
+    padding: 40px;
+  }
+  .welcome-icon {
+    width: 56px; height: 56px; border-radius: 16px;
+    background: var(--accent-light); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 700; margin-bottom: 16px;
+  }
+  .welcome h2 { font-size: 16px; color: var(--text); margin-bottom: 6px; }
+  .welcome p { font-size: 13px; max-width: 300px; line-height: 1.5; }
+
+  /* Markdown content styling */
+  .bubble .md-content { white-space: normal; }
+  .bubble .md-content p { margin: 0 0 8px 0; }
+  .bubble .md-content p:last-child { margin-bottom: 0; }
+  .bubble .md-content strong { font-weight: 600; }
+  .bubble .md-content em { font-style: italic; }
+  .bubble .md-content code {
+    background: #f0f0f0; padding: 1px 5px; border-radius: 3px;
+    font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 12px;
+  }
+  .bubble .md-content pre {
+    background: #f0f0f0; padding: 8px 10px; border-radius: 6px;
+    overflow-x: auto; margin: 6px 0; font-size: 12px;
+  }
+  .bubble .md-content pre code { background: none; padding: 0; }
+  .bubble .md-content table {
+    border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 12px;
+  }
+  .bubble .md-content th, .bubble .md-content td {
+    border: 1px solid var(--border); padding: 5px 8px; text-align: left;
+  }
+  .bubble .md-content th {
+    background: #f5f5f5; font-weight: 600;
+  }
+  .bubble .md-content ul, .bubble .md-content ol {
+    margin: 4px 0; padding-left: 20px;
+  }
+  .bubble .md-content li { margin: 2px 0; }
+  .bubble .md-content blockquote {
+    border-left: 3px solid var(--accent); margin: 6px 0;
+    padding: 4px 10px; color: var(--text-secondary);
+  }
+  .bubble .md-content h1, .bubble .md-content h2, .bubble .md-content h3 {
+    margin: 8px 0 4px 0; font-weight: 600;
+  }
+  .bubble .md-content h1 { font-size: 16px; }
+  .bubble .md-content h2 { font-size: 14px; }
+  .bubble .md-content h3 { font-size: 13px; }
+
+  /* Scrollbar */
+  .chat::-webkit-scrollbar { width: 6px; }
+  .chat::-webkit-scrollbar-track { background: transparent; }
+  .chat::-webkit-scrollbar-thumb { background: #CCC; border-radius: 3px; }
+  .chat::-webkit-scrollbar-thumb:hover { background: #AAA; }
+
+  /* Sign-in banner */
+  .banner {
+    background: #FFF4CE; border-bottom: 1px solid #FFE4A0;
+    padding: 8px 20px; font-size: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .banner button {
+    background: var(--accent); color: white; border: none;
+    border-radius: 4px; padding: 3px 10px; font-size: 11px;
+    cursor: pointer;
+  }
+  .banner.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-icon"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImdyYWQiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdHlsZT0ic3RvcC1jb2xvcjojMjU2M2ViIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3R5bGU9InN0b3AtY29sb3I6IzdjM2FlZCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPCEtLSBCYWNrZ3JvdW5kIC0tPgogIDxyZWN0IHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgcng9IjYiIGZpbGw9InVybCgjZ3JhZCkiLz4KICA8IS0tIEFJIFJvYm90IEhlYWQgLS0+CiAgPHJlY3QgeD0iOCIgeT0iMTAiIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNCIgcng9IjMiIGZpbGw9IndoaXRlIi8+CiAgPCEtLSBFeWVzIC0tPgogIDxjaXJjbGUgY3g9IjEyIiBjeT0iMTYiIHI9IjIiIGZpbGw9IiMyNTYzZWIiLz4KICA8Y2lyY2xlIGN4PSIyMCIgY3k9IjE2IiByPSIyIiBmaWxsPSIjN2MzYWVkIi8+CiAgPCEtLSBHbG93aW5nIGV5ZSBlZmZlY3QgLS0+CiAgPGNpcmNsZSBjeD0iMTIiIGN5PSIxNiIgcj0iMSIgZmlsbD0iIzYwYTVmYSIvPgogIDxjaXJjbGUgY3g9IjIwIiBjeT0iMTYiIHI9IjEiIGZpbGw9IiNhNzhiZmEiLz4KICA8IS0tIE1vdXRoL1NwZWFrZXIgLS0+CiAgPHJlY3QgeD0iMTEiIHk9IjIwIiB3aWR0aD0iMTAiIGhlaWdodD0iMiIgcng9IjEiIGZpbGw9IiM0YjU1NjMiLz4KICA8IS0tIEFudGVubmEgLS0+CiAgPGxpbmUgeDE9IjE2IiB5MT0iMTAiIHgyPSIxNiIgeTI9IjYiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGNpcmNsZSBjeD0iMTYiIGN5PSI1IiByPSIyIiBmaWxsPSIjNjBhNWZhIi8+Cjwvc3ZnPgo=" alt="AI"></div>
+  <div class="header-text">
+    <h1>WorkIQ Assistant</h1>
+    <div class="status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Connecting...</span>
+    </div>
+  </div>
+  <button class="new-chat-btn" onclick="newConversation()">New chat</button>
+</div>
+
+<div class="banner hidden" id="authBanner">
+  <span>⚠️ Not signed in to Azure.</span>
+  <button onclick="signIn()">Sign in</button>
+</div>
+
+<div class="chat" id="chat">
+  <div class="welcome" id="welcome">
+    <div class="welcome-icon"><img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImdyYWQiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdHlsZT0ic3RvcC1jb2xvcjojMjU2M2ViIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3R5bGU9InN0b3AtY29sb3I6IzdjM2FlZCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPCEtLSBCYWNrZ3JvdW5kIC0tPgogIDxyZWN0IHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgcng9IjYiIGZpbGw9InVybCgjZ3JhZCkiLz4KICA8IS0tIEFJIFJvYm90IEhlYWQgLS0+CiAgPHJlY3QgeD0iOCIgeT0iMTAiIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNCIgcng9IjMiIGZpbGw9IndoaXRlIi8+CiAgPCEtLSBFeWVzIC0tPgogIDxjaXJjbGUgY3g9IjEyIiBjeT0iMTYiIHI9IjIiIGZpbGw9IiMyNTYzZWIiLz4KICA8Y2lyY2xlIGN4PSIyMCIgY3k9IjE2IiByPSIyIiBmaWxsPSIjN2MzYWVkIi8+CiAgPCEtLSBHbG93aW5nIGV5ZSBlZmZlY3QgLS0+CiAgPGNpcmNsZSBjeD0iMTIiIGN5PSIxNiIgcj0iMSIgZmlsbD0iIzYwYTVmYSIvPgogIDxjaXJjbGUgY3g9IjIwIiBjeT0iMTYiIHI9IjEiIGZpbGw9IiNhNzhiZmEiLz4KICA8IS0tIE1vdXRoL1NwZWFrZXIgLS0+CiAgPHJlY3QgeD0iMTEiIHk9IjIwIiB3aWR0aD0iMTAiIGhlaWdodD0iMiIgcng9IjEiIGZpbGw9IiM0YjU1NjMiLz4KICA8IS0tIEFudGVubmEgLS0+CiAgPGxpbmUgeDE9IjE2IiB5MT0iMTAiIHgyPSIxNiIgeTI9IjYiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGNpcmNsZSBjeD0iMTYiIGN5PSI1IiByPSIyIiBmaWxsPSIjNjBhNWZhIi8+Cjwvc3ZnPgo=" alt="AI" style="width:28px;height:28px;"></div>
+    <h2>WorkIQ Assistant</h2>
+    <p>Ask me anything — I can look up your calendar, search documents, answer questions about your M365 data, or create meeting invites from an agenda.</p>
+  </div>
+</div>
+
+<div class="input-area">
+  <textarea id="input" placeholder="Describe what you need..." rows="1"
+    onkeydown="handleKey(event)"></textarea>
+  <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+    </svg>
+  </button>
+</div>
+
+<script>
+  const chat = document.getElementById('chat');
+  const input = document.getElementById('input');
+  const sendBtn = document.getElementById('sendBtn');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const welcome = document.getElementById('welcome');
+  const authBanner = document.getElementById('authBanner');
+
+  let ws = null;
+  let currentAgentBubble = null;
+  let reconnectTimer = null;
+
+  // ---- WebSocket connection ----
+  function connect() {
+    ws = new WebSocket('ws://127.0.0.1:18080');
+
+    ws.onopen = () => {
+      setStatus('connected', 'Ready');
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    };
+
+    ws.onclose = () => {
+      setStatus('error', 'Disconnected — retrying...');
+      reconnectTimer = setTimeout(connect, 3000);
+    };
+
+    ws.onerror = () => {};
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      handleServerMessage(msg);
+    };
+  }
+
+  function handleServerMessage(msg) {
+    switch (msg.type) {
+      case 'auth_status':
+        if (msg.ok) {
+          setStatus('connected', `Ready — ${msg.user || 'Authenticated'}`);
+          authBanner.classList.add('hidden');
+        } else {
+          setStatus('error', 'Not signed in');
+          authBanner.classList.remove('hidden');
+        }
+        break;
+
+      case 'task_started':
+        setStatus('working', 'Working...');
+        currentAgentBubble = addAgentMessage('');
+        addStep(currentAgentBubble, 'working', 'Starting...');
+        break;
+
+      case 'progress':
+        setStatus('working', 'Working...');
+        if (currentAgentBubble) {
+          markLastStepDone(currentAgentBubble);
+          if (msg.kind === 'agent') {
+            addAgentBadge(currentAgentBubble, msg.message);
+          } else {
+            addStep(currentAgentBubble, 'working', msg.message);
+          }
+        }
+        break;
+
+      case 'task_complete':
+        setStatus('connected', 'Done');
+        if (currentAgentBubble) {
+          markLastStepDone(currentAgentBubble);
+          const resultDiv = document.createElement('div');
+          resultDiv.className = 'md-content';
+          resultDiv.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #eee;';
+          resultDiv.innerHTML = renderMarkdown(msg.result);
+          currentAgentBubble.querySelector('.bubble').appendChild(resultDiv);
+          scrollToBottom();
+        }
+        currentAgentBubble = null;
+        break;
+
+      case 'task_error':
+        setStatus('error', 'Error');
+        if (currentAgentBubble) {
+          markLastStepDone(currentAgentBubble, true);
+          addStep(currentAgentBubble, 'error', `Error: ${msg.error}`);
+        }
+        currentAgentBubble = null;
+        // Show sign-in banner if error is auth-related
+        if (msg.error && (msg.error.includes('authentication') || msg.error.includes('sign in') || msg.error.includes('Azure CLI') || msg.error.includes('az login'))) {
+          authBanner.classList.remove('hidden');
+        }
+        break;
+
+      case 'signin_status':
+        if (msg.ok) {
+          setStatus('connected', `Signed in — ${msg.message}`);
+          authBanner.classList.add('hidden');
+        } else {
+          setStatus('error', `Sign-in failed`);
+        }
+        break;
+
+      case 'history_cleared':
+        setStatus('connected', 'New conversation');
+        break;
+    }
+  }
+
+  // ---- UI helpers ----
+  function setStatus(state, text) {
+    statusDot.className = 'status-dot ' + state;
+    statusText.textContent = text;
+  }
+
+  function now() {
+    return new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  }
+
+  function addUserMessage(text) {
+    welcome.style.display = 'none';
+    const div = document.createElement('div');
+    div.className = 'message user';
+    div.innerHTML = `<div class="bubble">${escapeHtml(text)}</div><div class="msg-time">${now()}</div>`;
+    chat.appendChild(div);
+    scrollToBottom();
+  }
+
+  function addAgentMessage(text) {
+    const div = document.createElement('div');
+    div.className = 'message agent';
+    div.innerHTML = `<div class="bubble">${escapeHtml(text)}</div><div class="msg-time">${now()}</div>`;
+    chat.appendChild(div);
+    scrollToBottom();
+    return div;
+  }
+
+  function addAgentBadge(msgDiv, agentName) {
+    const bubble = msgDiv.querySelector('.bubble');
+    const badge = document.createElement('div');
+    let cssClass = 'general';
+    let icon = '🤖';
+    if (agentName.toLowerCase().includes('q&a')) {
+      cssClass = 'qa'; icon = '🔍';
+    } else if (agentName.toLowerCase().includes('meeting')) {
+      cssClass = 'meeting'; icon = '📅';
+    }
+    badge.className = `agent-badge ${cssClass}`;
+    badge.innerHTML = `<span class="agent-icon">${icon}</span>${escapeHtml(agentName)}`;
+    bubble.appendChild(badge);
+    scrollToBottom();
+  }
+
+  function addStep(msgDiv, state, text) {
+    const bubble = msgDiv.querySelector('.bubble');
+    const step = document.createElement('div');
+    step.className = 'progress-step';
+    const icon = state === 'working' ? '⏳' : state === 'done' ? '✓' : '✕';
+    step.innerHTML = `<span class="step-icon ${state}">${icon}</span><span>${escapeHtml(text)}</span>`;
+    bubble.appendChild(step);
+    scrollToBottom();
+  }
+
+  function markLastStepDone(msgDiv, isError) {
+    const steps = msgDiv.querySelectorAll('.progress-step');
+    if (steps.length > 0) {
+      const last = steps[steps.length - 1];
+      const icon = last.querySelector('.step-icon');
+      if (icon.classList.contains('working')) {
+        icon.classList.remove('working');
+        icon.classList.add(isError ? 'error' : 'done');
+        icon.textContent = isError ? '✕' : '✓';
+      }
+    }
+  }
+
+  function scrollToBottom() {
+    requestAnimationFrame(() => { chat.scrollTop = chat.scrollHeight; });
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // ---- Input handling ----
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+    // Auto-grow textarea
+    requestAnimationFrame(() => {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 100) + 'px';
+    });
+  }
+
+  function sendMessage() {
+    const text = input.value.trim();
+    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+    addUserMessage(text);
+    ws.send(JSON.stringify({ type: 'task', input: text }));
+    input.value = '';
+    input.style.height = 'auto';
+  }
+
+  function newConversation() {
+    // Remove all messages, restore welcome
+    chat.querySelectorAll('.message').forEach(m => m.remove());
+    welcome.style.display = '';
+    currentAgentBubble = null;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'clear_history' }));
+    }
+  }
+
+  function signIn() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'signin' }));
+      setStatus('working', 'Signing in...');
+    }
+  }
+
+  // ---- Markdown rendering ----
+  function renderMarkdown(text) {
+    if (typeof marked !== 'undefined') {
+      try { return marked.parse(text); } catch(e) { /* fall through */ }
+    }
+    return escapeHtml(text).replace(/\n/g, '<br>');
+  }
+
+  // ---- Start ----
+  connect();
+  input.focus();
+</script>
+</body>
+</html>
