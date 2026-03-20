@@ -13,6 +13,7 @@ Launch:  pythonw meeting_agent.py          (invisible, no console)
 """
 
 import asyncio
+import ctypes
 import json
 import logging
 import os
@@ -49,7 +50,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("workiq_assistant")
 
-from agent_core import run_agent, check_azure_auth, run_az_login, _resolve_organizer, reset_qa_history
+from agent_core import run_agent, check_azure_auth, run_az_login, _resolve_organizer, reset_qa_history, get_loaded_skills
 
 IS_WIN = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
@@ -182,6 +183,12 @@ async def _handler(ws):
         else:
             await ws.send(json.dumps({"type": "auth_status", "ok": False}))
 
+        # Send loaded skills to the UI
+        await ws.send(json.dumps({
+            "type": "skills_list",
+            "skills": get_loaded_skills(),
+        }))
+
         async for raw in ws:
             msg = json.loads(raw)
             if msg.get("type") == "task":
@@ -269,11 +276,51 @@ def _run_server():
 # Window show/hide
 # ---------------------------------------------------------------------------
 
+def _set_taskbar_icon():
+    """Force our custom icon on the pywebview HWND so the taskbar shows it
+    instead of the default pythonw.exe Python icon."""
+    if not IS_WIN or _window is None:
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        WM_SETICON = 0x0080
+        ICON_BIG = 1
+        ICON_SMALL = 0
+        IMAGE_ICON = 1
+        LR_LOADFROMFILE = 0x0010
+        LR_DEFAULTSIZE = 0x0040
+
+        ico = str(_SCRIPT_DIR / "agent_icon.ico")
+
+        # Load the .ico as big (32x32) and small (16x16) HICON handles
+        hicon_big = user32.LoadImageW(
+            None, ico, IMAGE_ICON, 32, 32, LR_LOADFROMFILE
+        )
+        hicon_small = user32.LoadImageW(
+            None, ico, IMAGE_ICON, 16, 16, LR_LOADFROMFILE
+        )
+
+        # Find the top-level window by title
+        hwnd = user32.FindWindowW(None, "WorkIQ Assistant")
+        if hwnd and hicon_big:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon_big)
+        if hwnd and hicon_small:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon_small)
+
+        logger.info("Taskbar icon set via Win32 (hwnd=%s)", hwnd)
+    except Exception as e:
+        logger.warning("Failed to set taskbar icon: %s", e)
+
+
 def _show_window():
     """Show the pywebview window (thread-safe)."""
     if _window is not None:
         try:
             _window.show()
+            _set_taskbar_icon()
         except Exception:
             pass
 
@@ -364,7 +411,14 @@ def main():
     # 3. Toast to let user know it's running
     notify("WorkIQ Assistant", f"Running in background. Press {HOTKEY_LABEL} to open.")
 
-    # 4. Create the pywebview window (starts visible briefly, then hides)
+    # 4. Tell Windows this is a distinct app (not generic pythonw.exe)
+    #    so the taskbar shows our custom icon instead of the Python icon.
+    if IS_WIN:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "Microsoft.WorkIQAssistant"
+        )
+
+    # 5. Create the pywebview window (starts hidden)
     _window = webview.create_window(
         title="WorkIQ Assistant",
         url=str(_HTML_PATH),
@@ -378,7 +432,12 @@ def main():
     _window._agent_hidden = True
     _window.events.closing += _on_closing
 
-    # 5. Start pywebview event loop (blocks until process exits)
+    def _on_shown():
+        _set_taskbar_icon()
+
+    _window.events.shown += _on_shown
+
+    # 6. Start pywebview event loop (blocks until process exits)
     _icon_path = _SCRIPT_DIR / "agent_icon.ico"
     webview.start(debug=False, icon=str(_icon_path) if _icon_path.exists() else None)
 

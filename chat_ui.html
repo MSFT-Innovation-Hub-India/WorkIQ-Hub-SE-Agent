@@ -264,6 +264,66 @@
     cursor: pointer;
   }
   .banner.hidden { display: none; }
+
+  /* Skills panel */
+  .skills-bar {
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .skills-toggle {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 20px; cursor: pointer;
+    color: var(--text-secondary);
+    user-select: none;
+    transition: color 0.15s;
+  }
+  .skills-toggle:hover { color: var(--accent); }
+  .skills-toggle .chevron {
+    font-size: 10px; transition: transform 0.2s;
+    display: inline-block;
+  }
+  .skills-toggle .chevron.open { transform: rotate(90deg); }
+  .skills-toggle .skill-count {
+    background: var(--accent-light); color: var(--accent);
+    border-radius: 8px; padding: 0 6px;
+    font-size: 10px; font-weight: 600;
+    min-width: 18px; text-align: center;
+  }
+  .skills-list {
+    max-height: 0; overflow: hidden;
+    transition: max-height 0.25s ease;
+    padding: 0 20px;
+  }
+  .skills-list.open {
+    max-height: 300px;
+    padding: 0 20px 8px 20px;
+  }
+  .skill-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .skill-item:last-child { border-bottom: none; }
+  .skill-check {
+    width: 16px; height: 16px; border-radius: 3px;
+    background: var(--success); color: white;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; flex-shrink: 0;
+  }
+  .skill-name {
+    font-weight: 600; color: var(--text);
+  }
+  .skill-model {
+    font-size: 10px; padding: 1px 5px; border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .skill-model.full { background: #FFF4CE; color: #996B00; }
+  .skill-model.mini { background: #E8F4FD; color: #0078D4; }
+  .skill-desc {
+    color: var(--text-secondary); font-size: 11px;
+    margin-left: 24px; padding-bottom: 2px;
+  }
 </style>
 </head>
 <body>
@@ -283,6 +343,15 @@
 <div class="banner hidden" id="authBanner">
   <span>⚠️ Not signed in to Azure.</span>
   <button onclick="signIn()">Sign in</button>
+</div>
+
+<div class="skills-bar" id="skillsBar" style="display:none;">
+  <div class="skills-toggle" onclick="toggleSkills()">
+    <span class="chevron" id="skillsChevron">▶</span>
+    <span>Skills</span>
+    <span class="skill-count" id="skillCount">0</span>
+  </div>
+  <div class="skills-list" id="skillsList"></div>
 </div>
 
 <div class="chat" id="chat">
@@ -407,6 +476,10 @@
       case 'history_cleared':
         setStatus('connected', 'New conversation');
         break;
+
+      case 'skills_list':
+        renderSkillsPanel(msg.skills || []);
+        break;
     }
   }
 
@@ -524,6 +597,34 @@
       ws.send(JSON.stringify({ type: 'signin' }));
       setStatus('working', 'Signing in...');
     }
+  }
+
+  // ---- Skills panel ----
+  function renderSkillsPanel(skills) {
+    const bar = document.getElementById('skillsBar');
+    const list = document.getElementById('skillsList');
+    const count = document.getElementById('skillCount');
+    if (!skills.length) { bar.style.display = 'none'; return; }
+    bar.style.display = '';
+    count.textContent = skills.length;
+    list.innerHTML = skills.map(s => {
+      const modelLabel = s.model === 'full' ? 'LLM' : 'Mini';
+      const modelClass = s.model === 'full' ? 'full' : 'mini';
+      const displayName = s.name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      return `<div><div class="skill-item">
+        <span class="skill-check">✓</span>
+        <span class="skill-name">${escapeHtml(displayName)}</span>
+        <span class="skill-model ${modelClass}">${modelLabel}</span>
+      </div>
+      <div class="skill-desc">${escapeHtml(s.description)}</div></div>`;
+    }).join('');
+  }
+
+  function toggleSkills() {
+    const list = document.getElementById('skillsList');
+    const chevron = document.getElementById('skillsChevron');
+    list.classList.toggle('open');
+    chevron.classList.toggle('open');
   }
 
   // ---- Markdown rendering ----

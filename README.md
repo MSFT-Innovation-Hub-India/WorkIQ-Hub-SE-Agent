@@ -1,6 +1,6 @@
 # WorkIQ Agent
 
-An always-on, background-running AI assistant for Windows 11 that autonomously completes tasks against your Microsoft 365 data — so you can delegate work, walk away, and come back to results.
+A skills-driven, always-on AI assistant for Windows 11 that autonomously completes tasks against your Microsoft 365 data. Each capability is defined as a declarative skill — and the agent can be extended with new skills without code changes. Delegate work, walk away, and come back to results.
 
 ---
 
@@ -53,6 +53,19 @@ The Agent exhibits **autonomous agentic execution**: the user states an intent i
 | **Persistent authentication** | Sign in once through the browser; tokens are cached and silently refreshed across app restarts. |
 | **Auto-start at Windows login** | An install script registers the assistant to launch automatically at Windows startup. |
 
+### Skills-Driven Architecture
+
+WorkIQ Agent is **skills-driven** — each capability is defined as a declarative YAML file rather than hardcoded in the application. The agent ships with four built-in skills:
+
+| Skill | What it does |
+|---|---|
+| **Meeting Invites** | Autonomously retrieves an agenda document, identifies speakers, resolves emails, and sends calendar invites |
+| **Q&A** | Answers natural-language questions about the user's Microsoft 365 data with conversational follow-ups |
+| **Email Summary** | Summarizes unread or recent emails and highlights items needing the user's attention |
+| **General** | Handles greetings and small talk without any data lookup |
+
+Adding a new skill is as simple as dropping a YAML file into the `skills/` folder and restarting the agent — no code changes required for skills that use existing tools. The router automatically discovers new skills and starts routing matching requests to them. See [Skills — Declarative, Extensible Agent Capabilities](#skills--declarative-extensible-agent-capabilities) for details.
+
 ---
 
 ## The Meeting Invite Agent — Autonomous Multi-Step Workflow
@@ -72,6 +85,60 @@ The agent executes the following sequence **entirely on its own**, with no furth
 This is powered by the **Azure OpenAI Responses API** — true agentic AI. The main agent calls the Meeting Invite Agent only once with natural-language instructions. The Responses API autonomously orchestrates the entire tool-call loop: it decides which tool to call next, interprets the results, and chains them into subsequent tool calls until the workflow is complete.
 
 > **Note on calendar invite delivery:** This sample uses **Azure Communication Services (ACS)** to send meeting invites via email with `.ics` attachments. A simpler and more natural approach would be to use the **WorkIQ Outlook MCP Server**, which can create calendar events directly in the speaker's Outlook calendar. The WorkIQ Outlook MCP Server was not used in this sample because access to it was not available at the time of writing. Replacing the ACS-based delivery with the WorkIQ Outlook MCP Server would require only swapping the `create_meeting_invites` tool implementation — no changes to the agent instructions or orchestration logic.
+
+---
+
+## Skills — Declarative, Extensible Agent Capabilities
+
+Each capability of the WorkIQ Agent is defined as a **skill** — a self-contained YAML file in the `skills/` folder. Skills are loaded dynamically at startup: the agent discovers all `.yaml` files, builds the router prompt automatically from their names and descriptions, and routes user requests to the matching skill at runtime.
+
+### Skill anatomy
+
+```yaml
+# skills/email_summary.yaml
+name: email_summary
+description: >
+  Summarize unread or recent emails, highlight items that need the user's
+  attention, or find specific emails.
+model: mini              # "mini" → gpt-5.4-mini  |  "full" → gpt-5.2
+conversational: false    # true = maintain session history for follow-ups
+tools:
+  - query_workiq
+  - log_progress
+instructions: |
+  You are an Email Summary Agent that helps the user stay on top of their inbox.
+  ...
+```
+
+| Field | Purpose |
+|---|---|
+| `name` | Unique identifier — this is what the router returns when it classifies a request |
+| `description` | Natural-language description used by the router to match user intent |
+| `model` | Level of reasoning required: `full` for complex multi-step workflows (e.g., meeting invites), `mini` for straightforward Q&A and summarization |
+| `conversational` | Whether to maintain session history for follow-up questions |
+| `tools` | List of tool names this skill can use (must exist in the tool registry) |
+| `instructions` | The complete system prompt — this is all the Responses API needs to orchestrate the workflow |
+
+### Built-in skills
+
+| Skill | Model | Tools | Description |
+|---|---|---|---|
+| `meeting_invites` | full (`gpt-5.2`) | `query_workiq`, `log_progress`, `create_meeting_invites` | Autonomous multi-step workflow: retrieve agenda, filter speakers, resolve emails, send calendar invites |
+| `qa` | mini (`gpt-5.4-mini`) | `query_workiq`, `log_progress` | Conversational Q&A about Microsoft 365 data with session history |
+| `general` | mini (`gpt-5.4-mini`) | *(none)* | Greetings, small talk — no data lookup needed |
+| `email_summary` | mini (`gpt-5.4-mini`) | `query_workiq`, `log_progress` | Summarize unread/recent emails, highlight items needing attention |
+
+### Adding a new skill
+
+For skills that use **existing tools** (like `query_workiq` and `log_progress`):
+
+1. Create a new `.yaml` file in the `skills/` folder
+2. Define the `name`, `description`, `model`, `tools`, and `instructions`
+3. Restart the agent — the new skill is automatically discovered, the router prompt is rebuilt, and the agent can now handle the new category of requests
+
+**No Python code changes required.** The `email_summary` skill was added this way — zero lines of Python, just a YAML file.
+
+For skills that need a **new tool** (e.g., a tool that writes to SharePoint or creates Teams channels), a developer adds the tool's JSON schema to `TOOL_SCHEMAS` and its Python handler to `_TOOL_HANDLERS` in `agent_core.py`. Once registered, any skill can reference it by name.
 
 ---
 
@@ -209,6 +276,14 @@ The UI and backend communicate over WebSocket (`ws://127.0.0.1:18080`) using JSO
 - **Global hotkey** (`Ctrl+Alt+M`) uses `pynput.keyboard.GlobalHotKeys` to toggle visibility from any application.
 - **Toast click** — Clicking a toast notification opens `http://127.0.0.1:18081/show` via the `winotify` `launch` parameter. The HTTP handler calls `_show_window()` and returns a self-closing HTML page.
 
+### Taskbar Icon
+
+Because the app runs under `pythonw.exe`, Windows groups the taskbar entry with the Python executable and shows the default Python icon — regardless of what icon pywebview is given at startup. Two fixes are applied:
+
+1. **`SetCurrentProcessExplicitAppUserModelID`** — Before creating the window, the app calls `ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Microsoft.WorkIQAssistant")`. This tells Windows to treat the process as a distinct application rather than grouping it under `pythonw.exe`.
+
+2. **`SendMessage(WM_SETICON)`** — After the window is shown, the app loads the custom `.ico` file via `LoadImageW` and sends `WM_SETICON` (both `ICON_BIG` and `ICON_SMALL`) directly to the window handle found by `FindWindowW`. This forces the title bar and taskbar to display the robot icon. The call is repeated every time the window is shown, since Windows may reset the icon when a hidden window reappears.
+
 ### Subprocess Handling
 
 Since the app runs under `pythonw.exe` (no console), all subprocess calls use `subprocess.CREATE_NO_WINDOW` on Windows to prevent `cmd.exe` windows from flashing on screen during WorkIQ CLI invocations.
@@ -225,8 +300,8 @@ All logs are written to `~/.workiq-assistant/agent.log`, including agent routing
 workiq-assistant/
 ├── meeting_agent.py       # Main entry point — launcher, WebSocket/HTTP servers,
 │                          #   pywebview window, hotkey, toast notifications
-├── agent_core.py          # Core agent logic — router, sub-agents (Meeting Invite,
-│                          #   Q&A, General), tool execution, auth helpers
+├── agent_core.py          # Core agent logic — router, skill loader, tool registry,
+│                          #   tool execution, auth helpers
 ├── agent.py               # Console entry point — terminal-based interaction for
 │                          #   development and debugging (no UI, no background mode)
 ├── outlook_helper.py      # Azure Communication Services integration — builds .ics
@@ -241,6 +316,11 @@ workiq-assistant/
 ├── .env.example           # Template for .env with placeholder values
 ├── .gitignore             # Git ignore rules
 ├── requirements.txt       # Python dependencies
+├── skills/                # Skill definitions (YAML) — loaded dynamically at startup
+│   ├── meeting_invites.yaml  # Autonomous meeting invite workflow (full model)
+│   ├── qa.yaml               # Conversational Q&A via WorkIQ (mini model)
+│   ├── general.yaml          # Greetings and small talk (mini model, no tools)
+│   └── email_summary.yaml    # Email summarization (mini model, no new code)
 ├── experimental/
 │   └── test_graph_calendar.py  # Test script for Microsoft Graph calendar API
 │                               #   integration (delegated permissions, creates
@@ -351,4 +431,5 @@ All configuration is in the `.env` file:
 | `websockets` | WebSocket server for UI ↔ backend communication |
 | `pynput` | Global keyboard hotkey listener |
 | `winotify` | Windows 10/11 native toast notifications |
+| `pyyaml` | YAML parsing for skill definitions |
 | `tzlocal` | Auto-detection of the system timezone |

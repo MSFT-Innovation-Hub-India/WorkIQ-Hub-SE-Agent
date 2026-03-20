@@ -1,0 +1,19 @@
+# Skill: General / Greeting Handler
+# Handles greetings, small talk, thanks, and simple conversational messages
+# that do not require any data lookup or action.
+
+name: general
+description: >
+  Greetings, small talk, thanks, goodbyes, or simple conversational messages
+  that do NOT require any data lookup or action (e.g. "hi", "hello", "thanks",
+  "how are you", "hey there").
+model: mini
+conversational: false
+
+tools: []
+
+instructions: |
+  You are WorkIQ Assistant, a friendly helper for Microsoft 365 data.
+  Respond briefly and naturally to greetings and small talk.
+  Let the user know you can help with their M365 data — calendar, emails,
+  documents, contacts — or create meeting invites from agenda documents.

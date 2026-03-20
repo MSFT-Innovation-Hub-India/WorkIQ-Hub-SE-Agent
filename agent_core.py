@@ -1,10 +1,10 @@
 """
-Core agent logic — Router + sub-agents, tool execution, auth helpers.
+Core agent logic — Router + skill-based sub-agents, tool execution, auth helpers.
 
 Architecture:
-  Router (master agent) → classifies user intent → hands off to:
-    • MeetingInviteAgent — autonomous multi-step calendar invite workflow
-    • QAAgent — conversational Q&A via WorkIQ (with session history)
+  Router (master agent) → classifies user intent → hands off to the matching skill.
+  Skills are loaded dynamically from YAML files in the skills/ folder.
+  Adding a new skill requires only a new YAML file — no Python code changes.
 """
 
 import json
@@ -15,6 +15,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+import yaml
 
 # Prevent visible cmd.exe windows when spawning subprocesses under pythonw
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -175,107 +177,22 @@ def get_responses_client() -> OpenAI:
 
 
 # ---------------------------------------------------------------------------
-# Router (master agent) — classifies intent, no history
+# Skill loader — reads YAML files from skills/ folder
 # ---------------------------------------------------------------------------
 
-ROUTER_PROMPT = """You are a routing agent. Your ONLY job is to classify the user's request and return a JSON object.
-
-Classify into one of these categories:
-
-1. "meeting_invites" — The user wants to send/create calendar invites or meeting invitations to speakers/presenters from an agenda document or event. Keywords: invite, calendar, schedule speakers, send invites, agenda, engagement.
-
-2. "qa" — The user is asking a question that requires looking up data from Microsoft 365: calendar events, documents, emails, contacts, etc.
-
-3. "general" — Greetings, small talk, thanks, goodbyes, or simple conversational messages that do NOT require any data lookup or action (e.g. "hi", "hello", "thanks", "how are you", "hey there").
-
-Respond with ONLY a JSON object, no other text:
-{"agent": "meeting_invites"} or {"agent": "qa"} or {"agent": "general"}"""
+_SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 
 
-def _route(user_input: str) -> str:
-    """Classify user intent and return the sub-agent name."""
-    client = get_responses_client()
-    response = client.responses.create(
-        model=CHAT_MODEL,
-        instructions=ROUTER_PROMPT,
-        input=[{"role": "user", "content": user_input}],
-        tools=[],
-    )
-    text = ""
-    for item in response.output:
-        if item.type == "message":
-            for part in item.content:
-                if part.type == "output_text":
-                    text += part.text
-    try:
-        result = json.loads(text.strip())
-        agent = result.get("agent", "qa")
-        logger.info("[Router] Classified as: %s", agent)
-        return agent
-    except (json.JSONDecodeError, AttributeError):
-        logger.warning("[Router] Could not parse response: %s — defaulting to qa", text)
-        return "qa"
-
-
-# ---------------------------------------------------------------------------
-# Sub-agent 1: Meeting Invite Agent (single-turn, autonomous)
-# ---------------------------------------------------------------------------
-
-MEETING_INVITE_PROMPT = """You are an autonomous Hub Engagement Speaker Schedule Management Agent.
-
-Given a user request about a customer engagement event, you MUST complete ALL of the following steps using tool calls — do NOT stop or return text to the user until every step is done.
-
-STEP 1: Call query_workiq to retrieve the COMPLETE agenda document. Ask for: EVERY row in the agenda table including topic names, speaker names, and time slots for each session. Emphasize that you need ALL rows — do not summarize or abbreviate.
-After receiving the response, call log_progress with a markdown summary containing:
-- Document name retrieved
-- Engagement date
-- A markdown table of ALL rows exactly as returned, with columns: Time Slot | Topic | Speaker
-- A count of total rows retrieved
-
-STEP 2: From the COMPLETE list of rows, identify ALL Microsoft employee speakers. Apply these rules:
-DISCARD rows that are:
-- Lunch breaks, tea breaks, coffee breaks, or any kind of break
-- Rows with no topic or no speaker assigned
-- Rows where the speaker field is empty, "-", or "TBD"
-- Rows where the speaker is ONLY a team name (e.g. "Honeywell Team", "Customer Team"), a company name, or a generic role like "Moderator" with no individual name
-KEEP rows where:
-- The speaker is a clearly identifiable individual person's name (first name + last name)
-- This includes ALL Microsoft employees listed as speakers, even if they appear only once
-- If a row has multiple speakers listed (e.g. "John Smith / Jane Doe" or "John Smith & Jane Doe"), treat EACH person as a separate speaker and create entries for each
-After filtering, call log_progress listing:
-- Every kept session with speaker name and topic
-- Every discarded row with the reason for discarding
-- Total speakers kept vs total rows discarded
-
-STEP 3: Call query_workiq ONCE to look up the Microsoft corporate email addresses of ALL the individual speakers identified in Step 2. List every speaker name explicitly in your query — do not abbreviate. Ask for all of them in a single query.
-After receiving the response, call log_progress with a markdown table showing: Speaker | Email
-
-STEP 4: Call create_meeting_invites with the curated list of sessions, including each speaker's email address. Use the event date from the user's request to build full YYYY-MM-DD HH:MM datetime strings for start_time and end_time. Use 24-hour format.
-
-CRITICAL TIME CONVERSION RULES:
-- Copy AM/PM designations EXACTLY as they appear in the source agenda. Do NOT change AM to PM or vice versa.
-- Business events run during daytime hours (typically 8 AM to 7 PM). If your converted time falls outside this range, you have made an error — go back and re-read the source times.
-- When converting 12-hour to 24-hour: 10:15 AM = 10:15, 11:15 AM = 11:15, 12:15 PM = 12:15, 1:30 PM = 13:30, 2:30 PM = 14:30, 5:30 PM = 17:30, 5:45 PM = 17:45.
-- Double-check EVERY time value before calling create_meeting_invites.
-
-STEP 5: After the invites are created, present the user with a final summary table showing: Topic, Speaker, Time Slot, Email, and Status (created / failed). Also note any sessions that were skipped and why.
-
-IMPORTANT:
-- Complete ALL steps autonomously in a single turn. Do NOT stop after any intermediate step to ask the user for input.
-- Always call log_progress after each query_workiq call and after filtering, BEFORE moving to the next step.
-- If a speaker appears in multiple sessions, create a separate invite for each session.
-- If WorkIQ cannot find an email for a speaker, use "unknown@unknown.com" as a placeholder and flag it in the summary.
-- NEVER include team names, company names, or generic roles as speakers in the invite list."""
-
-
-MEETING_INVITE_TOOLS = [
-    {
+# Registry of tool name → JSON schema (for the Responses API)
+TOOL_SCHEMAS: dict[str, dict] = {
+    "query_workiq": {
         "type": "function",
         "name": "query_workiq",
         "description": (
             "Query the user's Microsoft 365 data via WorkIQ CLI. Use this to "
-            "retrieve agenda details, speakers, topics, time slots, and email "
-            "addresses from documents, calendar, or email."
+            "retrieve agenda details, speakers, topics, time slots, email "
+            "addresses, calendar events, documents, emails, contacts, and "
+            "any other M365 data."
         ),
         "parameters": {
             "type": "object",
@@ -291,7 +208,7 @@ MEETING_INVITE_TOOLS = [
             "required": ["question"],
         },
     },
-    {
+    "log_progress": {
         "type": "function",
         "name": "log_progress",
         "description": (
@@ -320,7 +237,7 @@ MEETING_INVITE_TOOLS = [
             "required": ["step_title", "details"],
         },
     },
-    {
+    "create_meeting_invites": {
         "type": "function",
         "name": "create_meeting_invites",
         "description": (
@@ -366,7 +283,121 @@ MEETING_INVITE_TOOLS = [
             "required": ["customer_name", "sessions"],
         },
     },
-]
+}
+
+
+class Skill:
+    """A loaded skill definition."""
+
+    def __init__(self, data: dict, source_file: str):
+        self.name: str = data["name"]
+        self.description: str = data["description"].strip()
+        self.model_tier: str = data.get("model", "mini")  # "full" or "mini"
+        self.conversational: bool = data.get("conversational", False)
+        self.tool_names: list[str] = data.get("tools", [])
+        self.instructions: str = data["instructions"].strip()
+        self.source_file: str = source_file
+
+    @property
+    def model(self) -> str:
+        return CHAT_MODEL if self.model_tier == "full" else CHAT_MODEL_SMALL
+
+    @property
+    def tools(self) -> list[dict]:
+        return [TOOL_SCHEMAS[t] for t in self.tool_names if t in TOOL_SCHEMAS]
+
+
+def _load_skills() -> dict[str, Skill]:
+    """Load all skill YAML files from the skills/ folder."""
+    skills: dict[str, Skill] = {}
+    if not _SKILLS_DIR.is_dir():
+        logger.warning("Skills directory not found: %s", _SKILLS_DIR)
+        return skills
+    for path in sorted(_SKILLS_DIR.glob("*.yaml")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            skill = Skill(data, str(path))
+            skills[skill.name] = skill
+            logger.info("Loaded skill: %s (%s model, %d tools) from %s",
+                        skill.name, skill.model_tier, len(skill.tool_names), path.name)
+        except Exception as e:
+            logger.error("Failed to load skill from %s: %s", path, e)
+    return skills
+
+
+# Load skills at import time
+_skills = _load_skills()
+logger.info("Skills loaded: %s", list(_skills.keys()))
+
+
+def get_loaded_skills() -> list[dict]:
+    """Return a summary of all loaded skills for the UI."""
+    return [
+        {
+            "name": s.name,
+            "description": s.description,
+            "model": s.model_tier,
+            "tools": s.tool_names,
+        }
+        for s in _skills.values()
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Router (master agent) — classifies intent dynamically from loaded skills
+# ---------------------------------------------------------------------------
+
+def _build_router_prompt() -> str:
+    """Build the router system prompt from all loaded skills."""
+    lines = [
+        "You are a routing agent. Your ONLY job is to classify the user's request "
+        "and return a JSON object.",
+        "",
+        "Classify into one of these categories:",
+        "",
+    ]
+    for i, skill in enumerate(_skills.values(), 1):
+        lines.append(f'{i}. "{skill.name}" — {skill.description}')
+        lines.append("")
+
+    skill_names = [f'"{s}"' for s in _skills]
+    examples = " or ".join(f'{{"skill": {n}}}' for n in skill_names)
+    lines.append(f"Respond with ONLY a JSON object, no other text:")
+    lines.append(examples)
+    return "\n".join(lines)
+
+
+ROUTER_PROMPT = _build_router_prompt()
+logger.debug("Router prompt:\n%s", ROUTER_PROMPT)
+
+
+def _route(user_input: str) -> str:
+    """Classify user intent and return the skill name."""
+    client = get_responses_client()
+    response = client.responses.create(
+        model=CHAT_MODEL,
+        instructions=ROUTER_PROMPT,
+        input=[{"role": "user", "content": user_input}],
+        tools=[],
+    )
+    text = ""
+    for item in response.output:
+        if item.type == "message":
+            for part in item.content:
+                if part.type == "output_text":
+                    text += part.text
+    try:
+        result = json.loads(text.strip())
+        skill_name = result.get("skill") or result.get("agent", "qa")
+        logger.info("[Router] Classified as: %s", skill_name)
+        if skill_name in _skills:
+            return skill_name
+        logger.warning("[Router] Unknown skill '%s' — defaulting to qa", skill_name)
+        return "qa"
+    except (json.JSONDecodeError, AttributeError):
+        logger.warning("[Router] Could not parse response: %s — defaulting to qa", text)
+        return "qa"
 
 
 # ---------------------------------------------------------------------------
@@ -441,205 +472,103 @@ def execute_create_meeting_invites(customer_name: str, sessions: list[dict], on_
     return "\n".join(results)
 
 
+# Tool name → handler function
+_TOOL_HANDLERS = {
+    "query_workiq": lambda args, on_progress: execute_query_workiq(args["question"], on_progress),
+    "log_progress": lambda args, on_progress: execute_log_progress(args["step_title"], args["details"], on_progress),
+    "create_meeting_invites": lambda args, on_progress: execute_create_meeting_invites(args["customer_name"], args["sessions"], on_progress),
+}
+
+
 def handle_tool_call(name: str, arguments: str, on_progress=None) -> str:
     """Execute a tool call and return the result string."""
     args = json.loads(arguments)
-    if name == "query_workiq":
-        return execute_query_workiq(args["question"], on_progress)
-    elif name == "log_progress":
-        return execute_log_progress(args["step_title"], args["details"], on_progress)
-    elif name == "create_meeting_invites":
-        return execute_create_meeting_invites(args["customer_name"], args["sessions"], on_progress)
-    else:
-        return f"Unknown tool: {name}"
+    handler = _TOOL_HANDLERS.get(name)
+    if handler:
+        return handler(args, on_progress)
+    return f"Unknown tool: {name}"
 
 
 # ---------------------------------------------------------------------------
-# Agent loop — Meeting Invite Agent (single-turn autonomous)
+# Conversation history for conversational skills
 # ---------------------------------------------------------------------------
 
-def _run_meeting_invite_agent(user_input: str, on_progress=None) -> str:
-    """
-    Single-turn autonomous agent for meeting invite creation.
-    No conversation history — runs all steps to completion.
-    """
-    input_messages = [{"role": "user", "content": user_input}]
-
-    client = get_responses_client()
-
-    logger.info("[MeetingInviteAgent] Starting autonomous execution...")
-    if on_progress:
-        on_progress("step", "Meeting Invite Agent: starting...")
-
-    response = client.responses.create(
-        model=CHAT_MODEL,
-        instructions=MEETING_INVITE_PROMPT,
-        input=input_messages,
-        tools=MEETING_INVITE_TOOLS,
-    )
-
-    step = 1
-    while True:
-        tool_calls = [item for item in response.output if item.type == "function_call"]
-
-        if not tool_calls:
-            break
-
-        tool_results = []
-        for tc in tool_calls:
-            logger.info("[Step %d] Calling tool: %s", step, tc.name)
-            if on_progress:
-                on_progress("step", f"Step {step}: {tc.name}")
-            result = handle_tool_call(tc.name, tc.arguments, on_progress)
-            tool_results.append({
-                "type": "function_call_output",
-                "call_id": tc.call_id,
-                "output": result,
-            })
-
-        step += 1
-
-        client = get_responses_client()
-        response = client.responses.create(
-            model=CHAT_MODEL,
-            instructions=MEETING_INVITE_PROMPT,
-            input=tool_results,
-            tools=MEETING_INVITE_TOOLS,
-            previous_response_id=response.id,
-        )
-
-    # Extract the final text
-    final_text = ""
-    for item in response.output:
-        if item.type == "message":
-            for part in item.content:
-                if part.type == "output_text":
-                    final_text += part.text
-    return final_text
-
-
-# ---------------------------------------------------------------------------
-# Sub-agent 2: Q&A Agent (conversational, with session history)
-# ---------------------------------------------------------------------------
-
-QA_PROMPT = """You are a helpful assistant that answers questions about the user's Microsoft 365 data — calendar events, documents, emails, contacts, and more.
-
-You have access to WorkIQ, which can search and retrieve information from the user's M365 environment.
-
-Rules:
-- Use query_workiq to look up real data when the user asks about their calendar, files, emails, meetings, contacts, etc.
-- Call log_progress to show the user what you found, using markdown formatting.
-- Give concise, well-structured answers. Use markdown tables where appropriate.
-- If the user asks a follow-up question, use context from the conversation history to understand what they mean.
-- If WorkIQ cannot find the answer, say so clearly."""
-
-QA_TOOLS = [
-    {
-        "type": "function",
-        "name": "query_workiq",
-        "description": (
-            "Query the user's Microsoft 365 data via WorkIQ CLI. Use this to "
-            "search calendars, documents, emails, contacts, and any other M365 data."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "question": {
-                    "type": "string",
-                    "description": "The natural language question to ask WorkIQ.",
-                }
-            },
-            "required": ["question"],
-        },
-    },
-    {
-        "type": "function",
-        "name": "log_progress",
-        "description": (
-            "Log a formatted progress update for the user to see. "
-            "Use markdown formatting (tables, lists, bold)."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "step_title": {
-                    "type": "string",
-                    "description": "Short title, e.g. 'Calendar Events', 'Search Results'.",
-                },
-                "details": {
-                    "type": "string",
-                    "description": "Formatted markdown summary of what was found.",
-                },
-            },
-            "required": ["step_title", "details"],
-        },
-    },
-]
-
-# Session history for the Q&A agent (list of message dicts)
-_qa_history: list[dict] = []
+_conversation_histories: dict[str, list[dict]] = {}
 
 
 def reset_qa_history():
-    """Clear the Q&A conversation history."""
-    global _qa_history
-    _qa_history = []
-    logger.info("[QAAgent] Conversation history cleared.")
+    """Clear all conversational skill histories."""
+    _conversation_histories.clear()
+    logger.info("Conversation histories cleared.")
 
 
-def _run_qa_agent(user_input: str, on_progress=None) -> str:
+# ---------------------------------------------------------------------------
+# Generic skill runner
+# ---------------------------------------------------------------------------
+
+def _run_skill(skill: Skill, user_input: str, on_progress=None) -> str:
     """
-    Conversational Q&A agent with session history.
-    Each call appends to _qa_history for follow-up context.
+    Run a skill against the user's input.
+
+    - Conversational skills maintain a session history for follow-up context.
+    - Non-conversational skills run single-turn (no history).
+    - Skills with no tools get a direct LLM response (no tool-call loop).
     """
-    global _qa_history
-
-    _qa_history.append({"role": "user", "content": user_input})
-
     client = get_responses_client()
 
-    logger.info("[QAAgent] Query: %s (history: %d messages)", user_input, len(_qa_history))
-    if on_progress:
-        on_progress("step", "Q&A Agent: looking up your data...")
+    # Build input messages
+    if skill.conversational:
+        history = _conversation_histories.setdefault(skill.name, [])
+        history.append({"role": "user", "content": user_input})
+        input_messages = list(history)
+        logger.info("[%s] Query: %s (history: %d messages)", skill.name, user_input, len(history))
+    else:
+        input_messages = [{"role": "user", "content": user_input}]
+        logger.info("[%s] Starting execution...", skill.name)
 
+    if on_progress and skill.tool_names:
+        on_progress("step", f"{skill.name}: starting...")
+
+    # Initial API call
+    tools = skill.tools or []
     response = client.responses.create(
-        model=CHAT_MODEL_SMALL,
-        instructions=QA_PROMPT,
-        input=_qa_history,
-        tools=QA_TOOLS,
+        model=skill.model,
+        instructions=skill.instructions,
+        input=input_messages,
+        tools=tools if tools else [],
     )
 
-    step = 1
-    while True:
-        tool_calls = [item for item in response.output if item.type == "function_call"]
+    # Tool-call loop (only if skill has tools)
+    if tools:
+        step = 1
+        while True:
+            tool_calls = [item for item in response.output if item.type == "function_call"]
+            if not tool_calls:
+                break
 
-        if not tool_calls:
-            break
+            tool_results = []
+            for tc in tool_calls:
+                logger.info("[%s Step %d] Calling tool: %s", skill.name, step, tc.name)
+                if on_progress:
+                    on_progress("step", f"Step {step}: {tc.name}")
+                result = handle_tool_call(tc.name, tc.arguments, on_progress)
+                tool_results.append({
+                    "type": "function_call_output",
+                    "call_id": tc.call_id,
+                    "output": result,
+                })
 
-        tool_results = []
-        for tc in tool_calls:
-            logger.info("[QAAgent Step %d] Calling tool: %s", step, tc.name)
-            if on_progress:
-                on_progress("step", f"Looking up: {tc.name}")
-            result = handle_tool_call(tc.name, tc.arguments, on_progress)
-            tool_results.append({
-                "type": "function_call_output",
-                "call_id": tc.call_id,
-                "output": result,
-            })
+            step += 1
+            client = get_responses_client()
+            response = client.responses.create(
+                model=skill.model,
+                instructions=skill.instructions,
+                input=tool_results,
+                tools=tools,
+                previous_response_id=response.id,
+            )
 
-        step += 1
-
-        client = get_responses_client()
-        response = client.responses.create(
-            model=CHAT_MODEL_SMALL,
-            instructions=QA_PROMPT,
-            input=tool_results,
-            tools=QA_TOOLS,
-            previous_response_id=response.id,
-        )
-
-    # Extract the final text
+    # Extract final text
     final_text = ""
     for item in response.output:
         if item.type == "message":
@@ -647,65 +576,40 @@ def _run_qa_agent(user_input: str, on_progress=None) -> str:
                 if part.type == "output_text":
                     final_text += part.text
 
-    # Save assistant response to history for follow-ups
-    if final_text:
-        _qa_history.append({"role": "assistant", "content": final_text})
-
-    # Keep history manageable (last 20 messages)
-    if len(_qa_history) > 20:
-        _qa_history = _qa_history[-20:]
+    # Save to history for conversational skills
+    if skill.conversational and final_text:
+        history = _conversation_histories.setdefault(skill.name, [])
+        history.append({"role": "assistant", "content": final_text})
+        # Keep history manageable (last 20 messages)
+        if len(history) > 20:
+            _conversation_histories[skill.name] = history[-20:]
 
     return final_text
 
 
 # ---------------------------------------------------------------------------
-# General response handler (greetings, small talk — no sub-agent needed)
-# ---------------------------------------------------------------------------
-
-def _run_general_response(user_input: str, on_progress=None) -> str:
-    """Handle greetings and simple conversational messages directly."""
-    client = get_responses_client()
-    response = client.responses.create(
-        model=CHAT_MODEL_SMALL,
-        instructions=(
-            "You are WorkIQ Assistant, a friendly helper for Microsoft 365 data. "
-            "Respond briefly and naturally to greetings and small talk. "
-            "Let the user know you can help with their M365 data — calendar, emails, "
-            "documents, contacts — or create meeting invites from agenda documents."
-        ),
-        input=[{"role": "user", "content": user_input}],
-    )
-    final_text = ""
-    for item in response.output:
-        if item.type == "message":
-            for part in item.content:
-                if part.type == "output_text":
-                    final_text += part.text
-    return final_text
-
-
-# ---------------------------------------------------------------------------
-# Master entry point — routes to the right sub-agent
+# Master entry point — routes to the right skill
 # ---------------------------------------------------------------------------
 
 def run_agent(user_input: str, on_progress=None) -> str:
     """
-    Master entry point. Routes user input to the appropriate sub-agent.
+    Master entry point. Routes user input to the appropriate skill.
 
     on_progress(kind, message) is called with live updates:
       kind="step"     — agent step started
       kind="tool"     — tool execution update
       kind="progress" — structured progress from log_progress tool
+      kind="agent"    — sub-agent activated
     """
-    agent_name = _route(user_input)
+    skill_name = _route(user_input)
+    skill = _skills.get(skill_name)
 
-    if agent_name == "meeting_invites":
-        if on_progress:
-            on_progress("agent", "Meeting Invite Agent")
-        return _run_meeting_invite_agent(user_input, on_progress)
-    elif agent_name == "general":
-        return _run_general_response(user_input, on_progress)
-    else:
-        if on_progress:
-            on_progress("agent", "Q&A Agent")
-        return _run_qa_agent(user_input, on_progress)
+    if not skill:
+        logger.warning("Skill '%s' not found — falling back to qa", skill_name)
+        skill = _skills.get("qa")
+
+    # Don't show "agent" badge for lightweight general responses
+    if skill and skill.name != "general" and on_progress:
+        on_progress("agent", skill.name)
+
+    return _run_skill(skill, user_input, on_progress)
