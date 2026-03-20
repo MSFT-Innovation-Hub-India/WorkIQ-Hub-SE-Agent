@@ -71,7 +71,7 @@ The agent executes the following sequence **entirely on its own**, with no furth
 
 This is powered by the **Azure OpenAI Responses API** — true agentic AI. The main agent calls the Meeting Invite Agent only once with natural-language instructions. The Responses API autonomously orchestrates the entire tool-call loop: it decides which tool to call next, interprets the results, and chains them into subsequent tool calls until the workflow is complete.
 
-> At the time of this writing, direct access to the WorkIQ Outlook Calendar API is not available, so Azure Communication Services is used to deliver the calendar invites via email instead.
+> **Note on calendar invite delivery:** This sample uses **Azure Communication Services (ACS)** to send meeting invites via email with `.ics` attachments. A simpler and more natural approach would be to use the **WorkIQ Outlook MCP Server**, which can create calendar events directly in the speaker's Outlook calendar. The WorkIQ Outlook MCP Server was not used in this sample because access to it was not available at the time of writing. Replacing the ACS-based delivery with the WorkIQ Outlook MCP Server would require only swapping the `create_meeting_invites` tool implementation — no changes to the agent instructions or orchestration logic.
 
 ---
 
