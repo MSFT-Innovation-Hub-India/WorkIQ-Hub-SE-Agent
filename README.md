@@ -4,6 +4,19 @@ An always-on, background-running AI assistant for Windows 11 that autonomously c
 
 ---
 
+## A Heterogeneous Agentic Solution
+
+This agent bridges two distinct pillars of the Microsoft AI stack:
+
+- **Microsoft 365 Copilot & WorkIQ** (part of the [Microsoft Intelligence](https://www.microsoft.com/en-us/microsoft-365) suite) — the modern work and productivity platform that surfaces enterprise knowledge from calendars, emails, documents, contacts, and SharePoint through natural-language queries.
+- **Azure AI Foundry with Azure OpenAI Responses API** — the code-first agentic AI platform that enables developers to build autonomous, tool-calling agents with nothing more than tool definitions and natural-language instructions.
+
+WorkIQ Agent combines these two worlds into a single solution: WorkIQ provides the **data and enterprise context**, while Azure OpenAI Responses API provides the **autonomous reasoning and orchestration**. The result is an agent that can understand a user's intent, retrieve live Microsoft 365 data through WorkIQ, and act on it through multi-step tool-calling workflows — all without custom orchestration code.
+
+This heterogeneous approach unlocks capabilities that neither platform achieves in isolation. WorkIQ alone answers questions but cannot execute multi-step actions. Azure OpenAI alone can reason and orchestrate but has no access to enterprise data. Together, they form an agent that both *knows* and *acts*.
+
+---
+
 ## What It Does
 
 WorkIQ Agent is designed to run perpetually on a Windows 11 laptop. It lives in the background — no window, no taskbar clutter — and is summoned with a keyboard shortcut whenever you need it. You assign a task, close the window, and continue with your day. When the task is complete, a Windows toast notification appears. Clicking the toast brings up the results.
