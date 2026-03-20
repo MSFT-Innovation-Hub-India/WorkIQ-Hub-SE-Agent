@@ -4,6 +4,20 @@ An always-on, background-running AI assistant for Windows 11 that autonomously c
 
 ---
 
+## The Problem
+
+Every customer engagement, every offsite, every internal workshop starts the same way: someone creates an agenda document — a Word file or a spreadsheet — listing sessions, speakers, topics, and time slots. And then the tedious part begins.
+
+Someone has to go through that document row by row, look up each speaker's email address, open Outlook, create a meeting invite with the correct time slot and topic, and send it. Repeat for every speaker. Blocking the entire day for all speakers is not practical — each person needs an invite for just their session. For a 15-session agenda, that is 15 individual meeting invites, each with the right time, the right topic, and the right recipient.
+
+This is not a rare edge case. **This is an everyday problem** across every organization that runs events, workshops, or customer engagements. And today, it is solved entirely by manual effort — even with all the productivity tools available in Microsoft 365.
+
+**WorkIQ Agent solves this in a single sentence.** The user describes the task in natural language — *"Send meeting invites to all speakers for the upcoming Zava engagement based on the agenda"* — and the agent does the rest: retrieves the agenda document, identifies the speakers, looks up their email addresses, and sends each one a calendar invite for their specific session. No manual steps. No human in the loop.
+
+While this meeting invite workflow is the showcase capability, the underlying architecture is designed to be **easily extensible**. Adding a new automation requires only defining a tool and writing natural-language instructions — no workflow code, no state machines. Thanks to the combined capabilities of WorkIQ for enterprise data access and the Azure OpenAI Responses API on Azure AI Foundry for autonomous orchestration, this agent can be extended to solve many such common everyday problems without significant engineering investment.
+
+---
+
 ## A Heterogeneous Agentic Solution
 
 This agent bridges two distinct pillars of the Microsoft AI stack:
