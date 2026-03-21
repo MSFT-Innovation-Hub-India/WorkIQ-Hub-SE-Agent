@@ -15,7 +15,9 @@ import threading
 import time
 
 import redis
-from redis_entraid.cred_provider import create_from_default_azure_credential
+from redis_entraid.cred_provider import EntraIdCredentialsProvider
+from redis_entraid.identity_provider import DefaultAzureCredentialProvider
+from redis.auth.token_manager import TokenManagerConfig, RetryPolicy
 
 logger = logging.getLogger("workiq_assistant")
 
@@ -24,7 +26,8 @@ class RedisBridge:
     """Polls a Redis inbox stream for remote tasks and writes results to an outbox stream."""
 
     def __init__(self, user_email: str, user_name: str,
-                 endpoint: str, ttl: int = 86400):
+                 endpoint: str, credential, ttl: int = 86400):
+        self._credential = credential  # shared InteractiveBrowserCredential
         self._user_email = user_email.lower()
         self._user_name = user_name
         self._ttl = ttl
@@ -45,6 +48,7 @@ class RedisBridge:
         self._pending_lock = threading.Lock()
 
         self._client: redis.RedisCluster | None = None
+        self._on_broadcast = None  # set by start()
         self._poller_thread: threading.Thread | None = None
         self._heartbeat_thread: threading.Thread | None = None
 
@@ -53,10 +57,17 @@ class RedisBridge:
     # ------------------------------------------------------------------
 
     def _connect(self):
-        """Create the Redis cluster connection using redis-entraid credential provider."""
-        credential_provider = create_from_default_azure_credential(
-            ("https://redis.azure.com/.default",)
+        """Create the Redis cluster connection using the shared credential."""
+        # Wrap the shared InteractiveBrowserCredential (silent refresh via cached auth record)
+        # instead of DefaultAzureCredential (which spawns az CLI processes → cmd windows)
+        idp = DefaultAzureCredentialProvider(
+            app=self._credential,
+            scopes=("https://redis.azure.com/.default",),
         )
+        token_mgr_config = TokenManagerConfig(
+            0.7, 0, 100, RetryPolicy(3, 3)
+        )
+        credential_provider = EntraIdCredentialsProvider(idp, token_mgr_config)
 
         self._client = redis.RedisCluster(
             host=self._host,
@@ -81,9 +92,10 @@ class RedisBridge:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start(self, task_queue):
+    def start(self, task_queue, on_broadcast=None):
         """Start the bridge: connect, register, begin polling."""
         self._task_queue = task_queue
+        self._on_broadcast = on_broadcast
         try:
             self._connect()
         except Exception as e:
@@ -183,7 +195,16 @@ class RedisBridge:
 
         logger.info("Remote message from %s (msg_id=%s): %.80s", sender, msg_id, text)
 
-        task = self._task_queue.submit_task(text, source="remote")
+        # Show the remote user's message in the local chat UI
+        if self._on_broadcast:
+            self._on_broadcast({
+                "type": "remote_message",
+                "sender": sender,
+                "text": text,
+            })
+
+        task = self._task_queue.submit_task(text, source="remote",
+                                            skill_name=None)
 
         # Remember the correlation for the outbox reply
         with self._pending_lock:

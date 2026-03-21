@@ -103,6 +103,11 @@ else:
 # Azure auth helpers
 # ---------------------------------------------------------------------------
 
+def get_credential():
+    """Return the shared InteractiveBrowserCredential (for use by Redis bridge etc)."""
+    return _credential
+
+
 def check_azure_auth() -> tuple[bool, str]:
     """Check if Azure credentials are cached (non-interactive — never opens browser)."""
     if _auth_record is None:

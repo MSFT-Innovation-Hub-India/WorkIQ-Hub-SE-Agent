@@ -1,20 +1,68 @@
 # WorkIQ Agent
 
-A skills-driven, always-on AI assistant for Windows 11 that autonomously completes tasks against your Microsoft 365 data. Each capability is defined as a declarative skill — and the agent can be extended with new skills without code changes. Delegate work, walk away, and come back to results.
+**Part 1 of 2** — This is the always-on desktop agent. It works in tandem with a companion cloud application (Part 2) that lets users interact with this agent **remotely from their mobile phones via Microsoft Teams**. Users can leave their computer, send requests from Teams, and receive completed results — including multi-step agentic workflows — without being at their desk.
+
+With the latest wave of AI moving toward autonomous agents on users' local computers — from Claude's Computer Use to OpenAI's Operator — WorkIQ Agent takes this further: an always-on, skills-driven AI assistant that runs on your Windows laptop, acts autonomously on your Microsoft 365 data, **and can be reached and messaged asynchronously from remote channels like Microsoft Teams**. Walk away from your desk, send a request from your phone, and let the agent get work done — including complex multi-step workflows that involve retrieving documents, resolving contacts, and sending calendar invites.
 
 ---
 
-## The Problem
+## Functional Features
 
-Every customer engagement, every offsite, every internal workshop starts the same way: someone creates an agenda document — a Word file or a spreadsheet — listing sessions, speakers, topics, and time slots. And then the tedious part begins.
+| Feature | Description |
+|---|---|
+| **Autonomous agentic execution** | State your intent in plain language. The agent orchestrates multi-step workflows end-to-end — deciding what data to fetch, what actions to take, and how to present the outcome — without further human input. |
+| **Remote access via Microsoft Teams** | Send requests and receive responses from your phone through Teams. The agent processes the work locally on your machine and delivers the result back through Azure Managed Redis. |
+| **FIFO task queue** | All business tasks are queued and processed one at a time. Queue multiple requests — they execute sequentially without interrupting each other. System queries (status checks, greetings) bypass the queue and respond instantly. |
+| **Real-time task status** | Ask "what's the status of my request?" at any time — even while a long-running task is executing. The agent summarizes progress milestones from the live execution log. |
+| **Concurrent request isolation** | Multiple requests (local + remote) are tracked independently. Each gets its own UI bubble and progress stream — no cross-talk. |
+| **Skills-driven extensibility** | Each capability is a declarative YAML file. Add a new skill by dropping a YAML file into `skills/` — no code changes, no redeployment. |
+| **Background operation** | Runs invisibly via `pythonw.exe` — no console window, no taskbar clutter until you summon it. |
+| **Global hotkey** | Press **Ctrl+Alt+M** anywhere to toggle the chat UI. |
+| **Toast notifications** | Native Windows 10/11 toasts for task progress and completion. Click a toast to open the UI. |
+| **Intelligent routing** | A master router classifies every request and delegates to the appropriate skill-specific sub-agent. |
+| **Adaptive model selection** | Complex workflows use a full LLM (`gpt-5.2`); Q&A and general responses use a smaller, faster model (`gpt-5.4-mini`) for cost-efficient responsiveness. |
+| **Markdown-rendered responses** | Tables, code blocks, lists, and headings rendered natively in the chat UI. Progress updates render as formatted markdown with structured step indicators. |
+| **Persistent authentication** | Sign in once; tokens are cached and silently refreshed across restarts via Azure Identity with persistent token cache. |
+| **Auto-start at Windows login** | An install script registers the assistant to launch at startup. |
 
-Someone has to go through that document row by row, look up each speaker's email address, open Outlook, create a meeting invite with the correct time slot and topic, and send it. Repeat for every speaker. Blocking the entire day for all speakers is not practical — each person needs an invite for just their session. For a 15-session agenda, that is 15 individual meeting invites, each with the right time, the right topic, and the right recipient.
+---
 
-This is not a rare edge case. **This is an everyday problem** across every organization that runs events, workshops, or customer engagements. And today, it is solved entirely by manual effort — even with all the productivity tools available in Microsoft 365.
+## Key Technical Capabilities
 
-**WorkIQ Agent solves this in a single sentence.** The user describes the task in natural language — *"Send meeting invites to all speakers for the upcoming Zava engagement based on the agenda"* — and the agent does the rest: retrieves the agenda document, identifies the speakers, looks up their email addresses, and sends each one a calendar invite for their specific session. No manual steps. No human in the loop.
+| Capability | Implementation |
+|---|---|
+| **Azure OpenAI Responses API** | The agentic core — tool definitions and natural-language instructions drive autonomous tool-call orchestration. No custom workflow code or state machines. |
+| **Azure Managed Redis (cluster mode)** | Inbox/outbox streams keyed by user email. Passwordless Entra ID authentication via `redis-entraid` credential provider with automatic token refresh. |
+| **Task queue with request classification** | Skills declare `queued: true/false`. Business tasks queue in FIFO; system tasks (status, greetings) execute immediately. Each task carries full progress logs for status reporting. |
+| **Composable tool system** | Tools are self-contained Python modules in `tools/` — discovered and registered at startup via `importlib`. Add a tool by dropping a `.py` file. |
+| **Composable skill system** | Skills are YAML files in `skills/` — discovered at startup. The router prompt is auto-generated from skill descriptions. Add a skill by dropping a `.yaml` file. |
+| **Request-ID based concurrency** | Every request gets a unique ID. All WebSocket messages, UI bubbles, and Redis correlation use this ID for complete task isolation. |
+| **Shared credential architecture** | A single `InteractiveBrowserCredential` instance (with cached `AuthenticationRecord`) is shared across OpenAI, WorkIQ, ACS, and Redis — one sign-in, zero command prompts. |
 
-While this meeting invite workflow is the showcase capability, the underlying architecture is designed to be **easily extensible**. Adding a new automation requires only defining a tool and writing natural-language instructions — no workflow code, no state machines. Thanks to the combined capabilities of WorkIQ for enterprise data access and the Azure OpenAI Responses API on Azure AI Foundry for autonomous orchestration, this agent can be extended to solve many such common everyday problems without significant engineering investment.
+---
+
+## The Two-Part Architecture
+
+```
+  ┌──────────────────────────────────┐       ┌──────────────────────────────────┐
+  │         Part 2 (Cloud)           │       │        Part 1 (Desktop)          │
+  │                                  │       │   ← THIS REPOSITORY →            │
+  │   Microsoft Teams                │       │                                  │
+  │     ↕                            │       │   WorkIQ Agent                   │
+  │   Teams Relay Service            │       │     • Skills-driven sub-agents   │
+  │     ↕                            │       │     • FIFO task queue            │
+  │   Azure Managed Redis            │◄─────►│     • Redis bridge (inbox/outbox)│
+  │     inbox:{email}                │       │     • Tool execution layer       │
+  │     outbox:{email}               │       │     • Local chat UI (pywebview)  │
+  │     agents:{email}               │       │     • Toast notifications        │
+  └──────────────────────────────────┘       └──────────────────────────────────┘
+```
+
+**Part 1** (this repo) is the agent itself — running on a Windows 11 laptop, processing tasks locally with full access to the user's Microsoft 365 data via WorkIQ. It registers its presence in Azure Managed Redis and polls an inbox stream for remote requests.
+
+**Part 2** (separate repo) is a cloud service that bridges Microsoft Teams to the Redis streams. When a user sends a message in Teams, the relay service pushes it to the agent's Redis inbox. When the agent writes a result to the outbox, the relay delivers it back to the Teams conversation.
+
+The user experience: send a message from your phone in Teams → the agent on your laptop picks it up, executes the full agentic workflow (retrieving M365 data, calling tools, orchestrating multi-step actions) → the result appears in your Teams chat.
 
 ---
 
@@ -22,79 +70,47 @@ While this meeting invite workflow is the showcase capability, the underlying ar
 
 This agent bridges two distinct pillars of the Microsoft AI stack:
 
-- **Microsoft 365 Copilot & WorkIQ** (part of the [Microsoft Intelligence](https://www.microsoft.com/en-us/microsoft-365) suite) — the modern work and productivity platform that surfaces enterprise knowledge from calendars, emails, documents, contacts, and SharePoint through natural-language queries.
-- **Azure AI Foundry with Azure OpenAI Responses API** — the code-first agentic AI platform that enables developers to build autonomous, tool-calling agents with nothing more than tool definitions and natural-language instructions.
+- **Microsoft 365 Copilot & WorkIQ** (part of the [Microsoft Intelligence](https://www.microsoft.com/en-us/microsoft-365) suite) — the productivity platform that surfaces enterprise knowledge from calendars, emails, documents, contacts, and SharePoint.
+- **Azure AI Foundry with Azure OpenAI Responses API** — the code-first agentic platform that builds autonomous, tool-calling agents with nothing more than tool definitions and natural-language instructions.
 
-WorkIQ Agent combines these two worlds into a single solution: WorkIQ provides the **data and enterprise context**, while Azure OpenAI Responses API provides the **autonomous reasoning and orchestration**. The result is an agent that can understand a user's intent, retrieve live Microsoft 365 data through WorkIQ, and act on it through multi-step tool-calling workflows — all without custom orchestration code.
+WorkIQ provides the **data and enterprise context**. Azure OpenAI Responses API provides the **autonomous reasoning and orchestration**. The result is an agent that understands intent, retrieves live Microsoft 365 data, and acts on it through multi-step tool-calling workflows — without custom orchestration code.
 
-This heterogeneous approach unlocks capabilities that neither platform achieves in isolation. WorkIQ alone answers questions but cannot execute multi-step actions. Azure OpenAI alone can reason and orchestrate but has no access to enterprise data. Together, they form an agent that both *knows* and *acts*.
+WorkIQ alone answers questions but cannot execute multi-step actions. Azure OpenAI alone can reason but has no access to enterprise data. Together, they form an agent that both *knows* and *acts*.
 
 ---
 
-## What It Does
+## Built-in Skills
 
-WorkIQ Agent is designed to run perpetually on a Windows 11 laptop. It lives in the background — no window, no taskbar clutter — and is summoned with a keyboard shortcut whenever you need it. You assign a task, close the window, and continue with your day. When the task is complete, a Windows toast notification appears. Clicking the toast brings up the results.
+WorkIQ Agent is **skills-driven** — each capability is a declarative YAML file rather than hardcoded logic. Skills are discovered at startup; the router prompt is auto-built from their descriptions.
 
-The Agent exhibits **autonomous agentic execution**: the user states an intent in natural language, and the agent orchestrates a multi-step workflow end-to-end without any further human intervention. The agent decides what data to fetch, what sequence of actions to take, and how to present the outcome — all in one shot.
+| Skill | Model | Queued | Tools | What it does |
+|---|---|---|---|---|
+| **Meeting Invites** | full (`gpt-5.2`) | Yes | `query_workiq`, `log_progress`, `create_meeting_invites` | Autonomous workflow: retrieve agenda → filter speakers → resolve emails → send calendar invites |
+| **Q&A** | mini (`gpt-5.4-mini`) | Yes | `query_workiq`, `log_progress` | Conversational Q&A about M365 data with session history |
+| **Email Summary** | mini (`gpt-5.4-mini`) | Yes | `query_workiq`, `log_progress` | Summarize unread/recent emails, highlight items needing attention |
+| **Task Status** | mini (`gpt-5.4-mini`) | No | `get_task_status` | Report current task progress and queue depth — responds instantly even while a task is running |
+| **General** | mini (`gpt-5.4-mini`) | No | *(none)* | Greetings and small talk — no data lookup |
 
-### Functional Features
+**Queued = Yes**: task enters the FIFO queue and executes when its turn comes.
+**Queued = No**: task executes immediately, bypassing the queue.
 
-| Feature | Description |
-|---|---|
-| **Background operation** | Runs invisibly via `pythonw.exe` — no console window, no taskbar icon until you summon it. |
-| **Global hotkey** | Press **Ctrl+Alt+M** anywhere to toggle the chat UI. |
-| **Toast notifications** | Native Windows 10/11 toast notifications for task progress and completion. Clicking a toast opens the UI directly. |
-| **Autonomous task completion** | Assign a task, minimize or close the window — the agent finishes the work in the background. |
-| **Intelligent routing** | A master router agent classifies every request and delegates it to the appropriate sub-agent. |
-| **Q&A Agent** | Ask natural-language questions about your Microsoft 365 data — calendar, emails, documents, contacts — powered by WorkIQ. Maintains conversation history for follow-up questions. |
-| **Meeting Invite Agent** | Given a customer engagement agenda document, the agent autonomously retrieves the full agenda, identifies all speakers, resolves their email addresses, and sends calendar invites — all without user intervention. |
-| **Adaptive model selection** | The router and Meeting Invite Agent use a full LLM (`gpt-5.2`) for complex reasoning, while the Q&A Agent and general responses use a smaller, faster model (`gpt-5.4-mini`) for cost-efficient responsiveness. |
-| **Markdown-rendered responses** | Agent responses are rendered with full Markdown support — tables, code blocks, lists, headings. |
-| **Persistent authentication** | Sign in once through the browser; tokens are cached and silently refreshed across app restarts. |
-| **Auto-start at Windows login** | An install script registers the assistant to launch automatically at Windows startup. |
+### Adding a new skill
+
+For skills using existing tools — **no Python code required**:
+
+1. Create a `.yaml` file in `skills/`
+2. Define `name`, `description`, `model`, `queued`, `tools`, and `instructions`
+3. Restart the agent — auto-discovered, router starts routing matching requests
+
+For skills needing a new tool:
+
+1. Create a `.py` file in `tools/` with `SCHEMA` dict and `handle()` function
+2. Reference the tool by name in the skill's `tools:` list
+3. Restart — both are auto-discovered
 
 ### Skills-Driven Architecture
 
-WorkIQ Agent is **skills-driven** — each capability is defined as a declarative YAML file rather than hardcoded in the application. The agent ships with four built-in skills:
-
-| Skill | What it does |
-|---|---|
-| **Meeting Invites** | Autonomously retrieves an agenda document, identifies speakers, resolves emails, and sends calendar invites |
-| **Q&A** | Answers natural-language questions about the user's Microsoft 365 data with conversational follow-ups |
-| **Email Summary** | Summarizes unread or recent emails and highlights items needing the user's attention |
-| **General** | Handles greetings and small talk without any data lookup |
-
-Adding a new skill is as simple as dropping a YAML file into the `skills/` folder and restarting the agent — no code changes required for skills that use existing tools. The router automatically discovers new skills and starts routing matching requests to them. See [Skills — Declarative, Extensible Agent Capabilities](#skills--declarative-extensible-agent-capabilities) for details.
-
----
-
-## The Meeting Invite Agent — Autonomous Multi-Step Workflow
-
-This task **cannot be accomplished today using Microsoft 365 Copilot Chat or Copilot Cowork directly**. It would require multiple iterations with the available tools to complete it. When a user says something like:
-
-> *"Refer to the Agenda Word document created in the last 5 days for the upcoming Customer Engagement with Zava. Send meeting invites to all speakers for based on their topics and timing"*
-
-The agent executes the following sequence **entirely on its own**, with no further user input:
-
-1. **Retrieve the agenda** — Calls WorkIQ to fetch the complete agenda document from the user's Microsoft 365 environment, extracting every row: time slots, topic names, and speaker names.
-2. **Filter speakers** — Parses the agenda, discards breaks, TBD entries, team names, and non-individual entries. Identifies every named speaker.
-3. **Resolve email addresses** — Calls WorkIQ again with the full list of speaker names to look up their Microsoft corporate email addresses.
-4. **Send calendar invites** — Uses Azure Communication Services to email each speaker a proper `.ics` calendar invite with the correct time slot, topic details, and the user as the organizer. Recipients see it as a standard Outlook meeting request with Accept/Decline buttons.
-5. **Report results** — Presents a summary table showing every invite sent, with status.
-
-This is powered by the **Azure OpenAI Responses API** — true agentic AI. The main agent calls the Meeting Invite Agent only once with natural-language instructions. The Responses API autonomously orchestrates the entire tool-call loop: it decides which tool to call next, interprets the results, and chains them into subsequent tool calls until the workflow is complete.
-
-> **Note on calendar invite delivery:** This sample uses **Azure Communication Services (ACS)** to send meeting invites via email with `.ics` attachments. A simpler and more natural approach would be to use the **WorkIQ Outlook MCP Server**, which can create calendar events directly in the speaker's Outlook calendar. The WorkIQ Outlook MCP Server was not used in this sample because access to it was not available at the time of writing. Replacing the ACS-based delivery with the WorkIQ Outlook MCP Server would require only swapping the `create_meeting_invites` tool implementation — no changes to the agent instructions or orchestration logic.
-
----
-
-## Skills — Declarative, Extensible Agent Capabilities
-
-Each capability of the WorkIQ Agent is defined as a **skill** — a self-contained YAML file in the `skills/` folder. Skills are loaded dynamically at startup: the agent discovers all `.yaml` files, builds the router prompt automatically from their names and descriptions, and routes user requests to the matching skill at runtime.
-
-### Skill anatomy
-
-The meeting invites skill — the flagship capability — illustrates how a complex multi-step autonomous workflow is defined entirely in YAML:
+The meeting invites skill illustrates how a complex multi-step autonomous workflow is defined entirely in YAML — the full five-step sequence (retrieve agenda → filter speakers → resolve emails → send invites → report results) is expressed as natural-language instructions with zero Python orchestration code:
 
 ```yaml
 # skills/meeting_invites.yaml
@@ -151,211 +167,144 @@ instructions: |
     for each session.
 ```
 
-Notice that the **entire five-step workflow is expressed as natural-language instructions**. There is no Python code for step sequencing, conditional logic, or state management. The Responses API reads these instructions and autonomously orchestrates the tool calls to complete every step.
-
-For comparison, a simpler skill requires only a few lines:
-
-```yaml
-# skills/email_summary.yaml
-name: email_summary
-description: >
-  Summarize unread or recent emails, highlight items that need the user's
-  attention, or find specific emails.
-model: mini              # "mini" → gpt-5.4-mini (cost-efficient)
-conversational: false
-tools:
-  - query_workiq
-  - log_progress
-instructions: |
-  You are an Email Summary Agent that helps the user stay on top of their inbox.
-  ...
-```
-
-This skill was added with **zero lines of Python** — just a YAML file dropped into the `skills/` folder.
+The **entire five-step workflow is expressed as natural-language instructions**. No Python code for step sequencing, conditional logic, or state management. The Responses API reads these instructions and autonomously orchestrates the tool calls.
 
 | Field | Purpose |
 |---|---|
-| `name` | Unique identifier — this is what the router returns when it classifies a request |
+| `name` | Unique identifier — what the router returns when it classifies a request |
 | `description` | Natural-language description used by the router to match user intent |
-| `model` | Level of reasoning required: `full` for complex multi-step workflows (e.g., meeting invites), `mini` for straightforward Q&A and summarization |
+| `model` | `full` for complex reasoning (e.g., meeting invites), `mini` for Q&A and summarization |
+| `queued` | `true` → enters FIFO task queue; `false` → executes immediately (system tasks) |
 | `conversational` | Whether to maintain session history for follow-up questions |
 | `tools` | List of tool names this skill can use (must exist in the tool registry) |
-| `instructions` | The complete system prompt — this is all the Responses API needs to orchestrate the workflow |
+| `instructions` | The complete system prompt — all the Responses API needs to orchestrate the workflow |
 
-### Built-in skills
-
-| Skill | Model | Tools | Description |
-|---|---|---|---|
-| `meeting_invites` | full (`gpt-5.2`) | `query_workiq`, `log_progress`, `create_meeting_invites` | Autonomous multi-step workflow: retrieve agenda, filter speakers, resolve emails, send calendar invites |
-| `qa` | mini (`gpt-5.4-mini`) | `query_workiq`, `log_progress` | Conversational Q&A about Microsoft 365 data with session history |
-| `general` | mini (`gpt-5.4-mini`) | *(none)* | Greetings, small talk — no data lookup needed |
-| `email_summary` | mini (`gpt-5.4-mini`) | `query_workiq`, `log_progress` | Summarize unread/recent emails, highlight items needing attention |
-
-### Adding a new skill
-
-For skills that use **existing tools** (like `query_workiq` and `log_progress`):
-
-1. Create a new `.yaml` file in the `skills/` folder
-2. Define the `name`, `description`, `model`, `tools`, and `instructions`
-3. Restart the agent — the new skill is automatically discovered, the router prompt is rebuilt, and the agent can now handle the new category of requests
-
-**No Python code changes required.** The `email_summary` skill was added this way — zero lines of Python, just a YAML file.
-
-For skills that need a **new tool** (e.g., a tool that writes to SharePoint or creates Teams channels):
-
-1. Create a new `.py` file in the `tools/` folder
-2. Export a `SCHEMA` dict (JSON schema for the Responses API) and a `handle()` function
-3. Reference the tool by name in the skill's `tools:` list
-4. Restart the agent
-
-**No changes to `agent_core.py` required.** Tools are discovered automatically via `importlib` at startup, just like skills. Each tool module is self-contained — the schema and handler live in the same file:
-
-```python
-# tools/send_teams_message.py
-
-SCHEMA = {
-    "type": "function",
-    "name": "send_teams_message",
-    "description": "Send a message to a Microsoft Teams channel.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "channel": {"type": "string", "description": "Teams channel name."},
-            "message": {"type": "string", "description": "Message content."},
-        },
-        "required": ["channel", "message"],
-    },
-}
-
-def handle(arguments: dict, *, on_progress=None, **kwargs) -> str:
-    """Send the message and return a confirmation."""
-    # Implementation here
-    ...
-```
-
-The full composable workflow for adding a completely new capability is:
-
-1. `tools/send_teams_message.py` — tool schema + handler (Python)
-2. `skills/teams_notify.yaml` — skill definition with instructions (YAML)
-3. Restart — both are auto-discovered, the router starts routing matching requests
-
----
-
-## Azure OpenAI Responses API — The Agentic Core
-
-The autonomous behavior of this solution is powered entirely by the **Azure OpenAI Responses API**. This is what makes the agent truly agentic rather than a scripted workflow.
-
-The Responses API accepts a set of **tool definitions** and **natural-language instructions**, then autonomously decides which tools to call, in what order, and how to interpret the results — looping through tool calls until the task is complete. The application code does not contain any orchestration logic, conditional branching, or step sequencing for the multi-step workflows. It simply:
-
-1. Defines the available tools (`query_workiq`, `log_progress`, `create_meeting_invites`)
-2. Provides natural-language instructions describing the desired outcome
-3. Calls the Responses API **once**
-4. Executes whatever tool calls the API requests, feeding results back
-5. Repeats until the API produces a final text response
-
-The entire meeting invite workflow — retrieving agenda data, filtering speakers, resolving emails, sending invites — emerges from the instructions alone. **No custom orchestration code was written for any of these steps.**
-
-This architecture has a significant practical benefit: **extending the agent's capabilities requires only adding a new tool definition and updating the instructions**. No workflow code, no state machines, no step graphs. The Responses API figures out how to use the new tool in context with the existing ones.
+> **Note on calendar invite delivery:** This sample uses **Azure Communication Services (ACS)** to send meeting invites via email with `.ics` attachments. Replacing the ACS-based delivery with the **WorkIQ Outlook MCP Server** (for creating events directly in Outlook) would require only swapping the `create_meeting_invites` tool implementation — no changes to agent instructions or orchestration logic.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Windows 11 Desktop                           │
-│                                                                     │
-│  ┌───────────────────────┐     ┌──────────────────────────────────┐ │
-│  │   pywebview Window    │◄────┤  WebSocket Server (ws://18080)   │ │
-│  │   (chat_ui.html)      │────►│  HTTP Server     (http://18081)  │ │
-│  │                       │     │                                  │ │
-│  │  • Markdown rendering │     │  ┌───────────────────────────┐   │ │
-│  │  • Auth banner/Sign-In│     │  │   Tool Loader (Python)    │   │ │
-│  │  • Progress steps     │     │  │   tools/*.py → registry   │   │ │
-│  │  • Skills panel       │     │  └────────┬──────────────────┘   │ │
-│  │  • Toast click handler│     │           │                      │ │
-│  └───────────────────────┘     │  ┌────────▼──────────────────┐   │ │
-│                                │  │   Skill Loader (YAML)     │   │ │
-│  ┌───────────────────────┐     │  │   skills/*.yaml → runtime │   │ │
-│  │  Global Hotkey Listener│    │  └────────┬──────────────────┘   │ │
-│  │  (pynput)             │     │           │                      │ │
-│  │  Ctrl+Alt+M           │     │  ┌────────▼──────────────────┐   │ │
-│  └───────────────────────┘     │  │    Router (Master Agent)  │   │ │
-│                                │  │    Azure OpenAI gpt-5.2   │   │ │
-│  ┌───────────────────────┐     │  │   (prompt auto-built from │   │ │
-│  │  Toast Notifications  │     │  │    skill descriptions)    │   │ │
-│  │  (winotify)           │     │  └────────┬──────────────────┘   │ │
-│  └───────────────────────┘     │           │ classifies intent    │ │
-│                                │     ┌─────┴──────┬──────────┐    │ │
-│                                │     ▼            ▼          ▼    │ │
-│                                │  ┌───────┐ ┌─────────┐ ┌──────┐  │ │
-│                                │  │ Skill │ │  Skill  │ │Skill │  │ │
-│                                │  │  (N)  │ │  (N+1)  │ │ ...  │  │ │
-│                                │  │ model │ │  model  │ │      │  │ │
-│                                │  │ tools │ │  tools  │ │      │  │ │
-│                                │  │instrs │ │ instrs  │ │      │  │ │
-│                                │  └──┬────┘ └──┬──────┘ └──────┘  │ │
-│                                │     │         │                  │ │
-│                                │     ▼         ▼                  │ │
-│                                │  ┌────────────────────────────┐  │ │
-│                                │  │  Azure OpenAI Responses    │  │ │
-│                                │  │  API (Agentic Layer)       │  │ │
-│                                │  │  • Autonomous tool-call    │  │ │
-│                                │  │    orchestration           │  │ │
-│                                │  │  • No custom workflow code │  │ │
-│                                │  │  • Instructions-driven     │  │ │
-│                                │  └──────────┬─────────────────┘  │ │
-│                                │             ▼                    │ │
-│                                │  ┌───────────────────────────┐   │ │
-│                                │  │   Tool Execution Layer    │   │ │
-│                                │  │  • query_workiq (CLI)     │   │ │
-│                                │  │  • log_progress           │   │ │
-│                                │  │  • create_meeting_invites │   │ │
-│                                │  └──────┬────────────┬───────┘   │ │
-│                                └─────────┼────────────┼───────────┘ │
-│                                          │            │             │
-└──────────────────────────────────────────┼────────────┼─────────────┘
-                                           │            │
-                              ┌────────────▼───┐  ┌─────▼───────────────┐
-                              │   WorkIQ CLI   │  │ Azure Communication │
-                              │  (M365 data)   │  │ Services (Email)    │
-                              └────────────────┘  └─────────────────────┘
-                                           │
-                              ┌────────────▼───────────────┐
-                              │   Microsoft 365 Graph API  │
-                              │  Calendar · Email · Files  │
-                              │  Contacts · SharePoint     │
-                              └────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                           Windows 11 Desktop                               │
+│                                                                            │
+│  ┌─────────────────────┐    ┌────────────────────────────────────────────┐ │
+│  │  pywebview Window   │◄──►│  WebSocket Server (ws://18080)             │ │
+│  │  (chat_ui.html)     │    │  HTTP Server     (http://18081)            │ │
+│  │                     │    │                                            │ │
+│  │ • Markdown rendering│    │  ┌──────────────────┐  ┌────────────────┐  │ │
+│  │ • Progress steps    │    │  │  Tool Loader     │  │  Skill Loader  │  │ │
+│  │ • Remote msg bubbles│    │  │  tools/*.py      │  │  skills/*.yaml │  │ │
+│  │ • Queue status      │    │  └────────┬─────────┘  └───────┬────────┘  │ │
+│  │ • Auth banner       │    │           │                    │           │ │
+│  └─────────────────────┘    │  ┌────────▼────────────────────▼─────────┐ │ │
+│                             │  │          Router (Master Agent)        │ │ │
+│  ┌────────────────────┐     │  │          Azure OpenAI gpt-5.2         │ │ │
+│  │ Global Hotkey      │     │  │   (prompt auto-built from skill       │ │ │
+│  │ (Ctrl+Alt+M)       │     │  │    descriptions)                      │ │ │
+│  └────────────────────┘     │  └───────────────┬───────────────────────┘ │ │
+│                             │                  │ classifies intent       │ │
+│  ┌─────────────────────┐    │         ┌────────▼────────┐                │ │
+│  │ Toast Notifications │    │         │   Request       │                │ │
+│  │ (winotify)          │    │         │   Classifier    │                │ │
+│  └─────────────────────┘    │         │  queued: true?  │                │ │
+│                             │         └───┬─────────┬───┘                │ │
+│                             │             │         │                    │ │
+│                             │     ┌───────▼──┐  ┌───▼──────────────┐     │ │
+│                             │     │   FIFO   │  │ Immediate exec   │     │ │
+│                             │     │   Task   │  │ (general, status)│     │ │
+│                             │     │   Queue  │  └──────────────────┘     │ │
+│                             │     └───┬──────┘                           │ │
+│                             │         │ one at a time                    │ │
+│                             │  ┌──────▼───────────────────────────────┐  │ │
+│                             │  │  Skill Sub-Agent Execution           │  │ │
+│                             │  │  (model + tools + instructions)      │  │ │
+│                             │  │  Azure OpenAI Responses API          │  │ │
+│                             │  │  • Autonomous tool-call orchestration│  │ │
+│                             │  │  • No custom workflow code           │  │ │
+│                             │  └──────┬───────────────┬───────────────┘  │ │
+│                             │         │               │                  │ │
+│                             │  ┌──────▼──────┐ ┌──────▼──────────────┐   │ │
+│                             │  │ Tool Layer  │ │ Progress Broadcast  │   │ │
+│                             │  │ query_workiq│ │ → UI (WebSocket)    │   │ │
+│                             │  │ log_progress│ │ → Toast notification│   │ │
+│                             │  │ create_mtg  │ │ → Progress log      │   │ │
+│                             │  │ get_status  │ │                     │   │ │
+│                             │  └──────┬──────┘ └─────────────────────┘   │ │
+│                             └─────────┼──────────────────────────────────┘ │
+│                                       │                                    │
+│  ┌────────────────────────────────────▼──────────────────────────────────┐ │
+│  │                      Redis Bridge (optional)                          │ │
+│  │  • Polls workiq:inbox:{email} for remote messages                     │ │
+│  │  • Writes results to workiq:outbox:{email}                            │ │
+│  │  • Registers workiq:agents:{email} with TTL heartbeat                 │ │
+│  │  • Entra ID auth via shared InteractiveBrowserCredential              │ │
+│  │  • RedisCluster with redis-entraid credential_provider                │ │
+│  └───────────────────────────┬───────────────────────────────────────────┘ │
+└──────────────────────────────┼─────────────────────────────────────────────┘
+                               │
+              ┌────────────────▼─────────────────┐
+              │    Azure Managed Redis           │
+              │    (cluster mode, Entra ID)      │
+              │    inbox / outbox / agents keys  │
+              └────────────────┬─────────────────┘
+                               │
+              ┌────────────────▼─────────────────┐
+              │    Part 2: Teams Relay Service   │
+              │    (companion cloud app)         │
+              └──────────────────────────────────┘
+
+              ┌──────────────────────────────────┐
+              │    WorkIQ CLI → M365 Graph API   │
+              │    Calendar · Email · Files ·    │
+              │    Contacts · SharePoint         │
+              └──────────────────────────────────┘
+
+              ┌─────────────────────────────────┐
+              │    Azure Communication Services │
+              │    (calendar invite email)      │
+              └─────────────────────────────────┘
 ```
 
 ### How It All Fits Together
 
-1. **Single-process launcher** (`meeting_agent.py`) — The entry point. Starts a background thread for the WebSocket/HTTP servers, registers the global hotkey, shows a startup toast, and enters the pywebview event loop.
+1. **Single-process launcher** (`meeting_agent.py`) — Entry point. Starts WebSocket/HTTP servers, registers the global hotkey, configures the task queue, optionally starts the Redis bridge, shows a startup toast, and enters the pywebview event loop.
 
-2. **WebSocket server** (port `18080`) — The communication backbone between the HTML-based chat UI and the Python agent backend. All user messages, agent responses, progress updates, and auth status flow over this channel as JSON messages.
+2. **WebSocket server** (port `18080`) — Communication backbone between the chat UI and the Python backend. User messages, agent responses, progress updates, auth status, queue notifications, and remote message alerts all flow over this channel as JSON.
 
-3. **HTTP server** (port `18081`) — A minimal server whose sole purpose is to handle toast notification clicks. When the user clicks a toast, Windows opens `http://127.0.0.1:18081/show`, which triggers the pywebview window to appear.
+3. **HTTP server** (port `18081`) — Handles toast notification clicks. When the user clicks a toast, Windows opens `http://127.0.0.1:18081/show`, which brings up the pywebview window.
 
-4. **pywebview window** — A lightweight native window that renders `chat_ui.html`. It starts hidden and is toggled on demand. When the user closes the window, it hides instead of quitting — the agent keeps running.
+4. **pywebview window** — Renders `chat_ui.html`. Starts hidden; close hides rather than quits. The `activeBubbles` Map tracks each concurrent request by `request_id` for complete isolation.
 
-5. **Tool Loader** — At startup, the agent discovers all `.py` files in the `tools/` folder via `importlib`, imports each module, and registers its `SCHEMA` and `handle()` function into the tool registry. Adding a new tool requires only dropping a Python file — no edits to core code.
+5. **Tool Loader** — Discovers all `.py` files in `tools/` via `importlib` at startup. Each module exports a `SCHEMA` dict and `handle()` function. Adding a tool requires only dropping a Python file.
 
-6. **Skill Loader** — Discovers all `.yaml` files in the `skills/` folder, parses each into a `Skill` object (name, description, model tier, tools, instructions), and automatically builds the router's system prompt from their descriptions.
+6. **Skill Loader** — Discovers all `.yaml` files in `skills/` at startup. Parses each into a runtime `Skill` object and auto-builds the router prompt from their descriptions.
 
-7. **Router (Master Agent)** — Every user message is classified by an LLM call into one of the loaded skill names. The router prompt is auto-generated — adding a new skill YAML file is enough for the router to start recognizing and delegating matching requests.
+7. **Router (Master Agent)** — Classifies every request into a skill name via LLM call. Also resolves the `queued` flag to determine whether the request enters the task queue or executes immediately.
 
-8. **Skills** — Each skill operates with its own system prompt, tool set, and model tier, as defined in its YAML file. The four built-in skills are:
-   - **Meeting Invites** — Full `gpt-5.2` model. Autonomous multi-step workflow: retrieve agenda, filter speakers, resolve emails, send calendar invites.
-   - **Q&A** — `gpt-5.4-mini` with conversation history (last 20 messages) for follow-up context.
-   - **Email Summary** — `gpt-5.4-mini`. Summarizes unread/recent emails and highlights items needing attention.
-   - **General** — `gpt-5.4-mini` for greetings and small talk without tool calls.
+8. **Task Queue** — In-memory FIFO queue with a dedicated worker thread. Business tasks (`queued: true`) execute one at a time. System tasks (`queued: false` — status queries, greetings) bypass the queue and respond instantly. Each task carries a full progress log for status reporting.
 
-9. **Azure OpenAI Responses API (Agentic Layer)** — The orchestration engine beneath the skills. The application provides tool definitions and natural-language instructions; the Responses API autonomously determines the sequence of tool calls, interprets results, and loops until the task is complete. There is no custom workflow code — the multi-step behavior emerges entirely from the instructions.
+9. **Skill Sub-Agents** — Each skill operates with its own system prompt, tool set, and model tier:
+   - **Meeting Invites** — `gpt-5.2`. Autonomous five-step workflow.
+   - **Q&A** — `gpt-5.4-mini` with conversation history.
+   - **Email Summary** — `gpt-5.4-mini`. Email triage and prioritization.
+   - **Task Status** — `gpt-5.4-mini`. Reports live progress from execution logs.
+   - **General** — `gpt-5.4-mini`. Greetings and small talk.
 
-10. **Tool execution layer** — Bridges LLM tool calls to real actions (each tool is a self-contained Python module in `tools/`):
-   - `query_workiq` — Runs the WorkIQ CLI as a subprocess to query Microsoft 365 data.
-   - `log_progress` — Sends structured progress updates to the UI in real time.
-   - `create_meeting_invites` — Constructs `.ics` calendar invites and delivers them via Azure Communication Services.
+10. **Azure OpenAI Responses API** — The agentic core. Tool definitions and natural-language instructions drive autonomous tool-call orchestration. No custom workflow code — multi-step behavior emerges from the instructions alone.
+
+11. **Tool execution layer** — Self-contained Python modules in `tools/`:
+    - `query_workiq` — Runs the WorkIQ CLI to query Microsoft 365 data.
+    - `log_progress` — Sends structured progress updates (rendered as markdown in the UI).
+    - `create_meeting_invites` — Constructs `.ics` calendar invites, delivers via ACS.
+    - `get_task_status` — Returns current task progress and queue depth.
+
+12. **Redis Bridge** (optional) — Connects the desktop agent to Azure Managed Redis for remote task delivery:
+    - **Inbox poller** — Background thread polls `workiq:inbox:{email}` via `XREAD` (5s blocking). Remote messages are submitted to the task queue and shown in the UI as purple "remote" bubbles.
+    - **Outbox writer** — On task completion, writes results to `workiq:outbox:{email}` with `in_reply_to` correlation for request-response matching.
+    - **Agent registration** — Sets `workiq:agents:{email}` with TTL, refreshed by a heartbeat every 30 minutes. Remote clients check this key to verify the agent is online.
+    - **Authentication** — Shares the agent's `InteractiveBrowserCredential` (with cached auth record for silent refresh), wrapped in `redis-entraid`'s `EntraIdCredentialsProvider`. No `DefaultAzureCredential` chain — no command windows on Windows.
 
 ---
 
@@ -363,51 +312,57 @@ This architecture has a significant practical benefit: **extending the agent's c
 
 ### Authentication Flow
 
-The app uses `InteractiveBrowserCredential` from the Azure Identity SDK with persistent token caching:
+A single `InteractiveBrowserCredential` from Azure Identity SDK is shared across all components — OpenAI, WorkIQ, ACS, and Redis:
 
-1. **First launch** — The UI shows a "Not signed in" banner. The user clicks **Sign In**, which opens a browser for Azure AD authentication.
-2. **Token caching** — Upon successful authentication, the `AuthenticationRecord` is serialized to `~/.workiq-assistant/auth_record.json`. The token cache is persisted under the name `workiq_assistant` using the OS credential store (Windows Credential Manager).
-3. **Subsequent launches** — The saved `AuthenticationRecord` is loaded at startup. The credential silently refreshes tokens using the cached refresh token — no browser prompt needed.
-4. **Token refresh** — The OpenAI client checks token expiry before each API call (with a 5-minute buffer). If the silent refresh fails (e.g., after a password change), it falls back to interactive browser login.
-5. **Shared credential** — A single credential instance is shared between `agent_core.py` and `outlook_helper.py` via `set_credential()` to avoid duplicate browser prompts.
+1. **First launch** — The UI shows a "Not signed in" banner. Click **Sign In** to open a browser for Entra ID authentication.
+2. **Token caching** — The `AuthenticationRecord` is serialized to `~/.workiq-assistant/auth_record.json`. The token cache is persisted via Windows Credential Manager.
+3. **Subsequent launches** — The saved record enables silent token refresh — no browser prompt.
+4. **Token refresh** — The OpenAI client checks expiry with a 5-minute buffer. If silent refresh fails, it falls back to interactive browser login.
+5. **Shared credential** — The same credential instance is shared with `outlook_helper.py` (via `set_credential()`) and with the Redis bridge (via `get_credential()`). This avoids duplicate browser prompts and prevents `DefaultAzureCredential` from spawning `az` CLI subprocesses under `pythonw.exe`.
 
 ### WebSocket Communication Protocol
 
-The UI and backend communicate over WebSocket (`ws://127.0.0.1:18080`) using JSON messages:
-
 | Direction | Message Type | Purpose |
 |---|---|---|
-| Server → Client | `auth_status` | Reports sign-in state and user identity |
+| Server → Client | `auth_status` | Sign-in state and user identity |
 | Client → Server | `task` | User submits a request |
-| Server → Client | `task_started` | Indicates processing has begun |
-| Server → Client | `progress` | Real-time step/tool updates (kind: `step`, `tool`, `progress`, `agent`) |
+| Server → Client | `task_queued` | Request added to queue (includes position) |
+| Server → Client | `task_started` | Processing has begun (includes `request_id` and `source`) |
+| Server → Client | `progress` | Real-time updates (kind: `step`, `tool`, `progress`, `agent`) |
 | Server → Client | `task_complete` | Final agent response with Markdown content |
 | Server → Client | `task_error` | Error message |
+| Server → Client | `remote_message` | Remote message arrived (sender + text, shown as purple bubble) |
 | Client → Server | `signin` | User clicks Sign In |
-| Server → Client | `signin_status` | Result of the sign-in attempt |
-| Client → Server | `clear_history` | User resets Q&A conversation history |
+| Server → Client | `signin_status` | Result of sign-in attempt |
+| Client → Server | `clear_history` | Reset Q&A conversation history |
+| Server → Client | `skills_list` | Loaded skills for the UI skills panel |
+
+All messages include a `request_id` field for concurrent task isolation.
+
+### Redis Streams Schema
+
+| Stream | Direction | Fields |
+|---|---|---|
+| `workiq:inbox:{email}` | Remote → Agent | `sender`, `text`, `ts`, `msg_id` |
+| `workiq:outbox:{email}` | Agent → Remote | `task_id`, `status`, `text`, `ts`, `in_reply_to` |
+| `workiq:agents:{email}` | Agent → Cloud | JSON: `{name, email, started_at, version}` with TTL |
+
+The `in_reply_to` field correlates outbox responses to inbox `msg_id` values, enabling request-response matching for remote clients.
 
 ### Window Management
 
-- The pywebview window starts **hidden** (`hidden=True`). Window close is intercepted — it hides rather than quits, so the agent keeps running.
-- **Global hotkey** (`Ctrl+Alt+M`) uses `pynput.keyboard.GlobalHotKeys` to toggle visibility from any application.
-- **Toast click** — Clicking a toast notification opens `http://127.0.0.1:18081/show` via the `winotify` `launch` parameter. The HTTP handler calls `_show_window()` and returns a self-closing HTML page.
-
-### Taskbar Icon
-
-Because the app runs under `pythonw.exe`, Windows groups the taskbar entry with the Python executable and shows the default Python icon — regardless of what icon pywebview is given at startup. Two fixes are applied:
-
-1. **`SetCurrentProcessExplicitAppUserModelID`** — Before creating the window, the app calls `ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Microsoft.WorkIQAssistant")`. This tells Windows to treat the process as a distinct application rather than grouping it under `pythonw.exe`.
-
-2. **`SendMessage(WM_SETICON)`** — After the window is shown, the app loads the custom `.ico` file via `LoadImageW` and sends `WM_SETICON` (both `ICON_BIG` and `ICON_SMALL`) directly to the window handle found by `FindWindowW`. This forces the title bar and taskbar to display the robot icon. The call is repeated every time the window is shown, since Windows may reset the icon when a hidden window reappears.
+- pywebview window starts **hidden**. Close hides rather than quits.
+- **Global hotkey** (`Ctrl+Alt+M`) via `pynput.keyboard.GlobalHotKeys`.
+- **Toast click** opens `http://127.0.0.1:18081/show` to bring up the window.
+- **Custom taskbar icon** via `SetCurrentProcessExplicitAppUserModelID` + `WM_SETICON` to override default `pythonw.exe` grouping.
 
 ### Subprocess Handling
 
-Since the app runs under `pythonw.exe` (no console), all subprocess calls use `subprocess.CREATE_NO_WINDOW` on Windows to prevent `cmd.exe` windows from flashing on screen during WorkIQ CLI invocations.
+All subprocess calls use `subprocess.CREATE_NO_WINDOW` on Windows to prevent `cmd.exe` windows from flashing during WorkIQ CLI invocations.
 
 ### Logging
 
-All logs are written to `~/.workiq-assistant/agent.log`, including agent routing decisions, tool calls, WorkIQ responses, and authentication events.
+All logs are written to `~/.workiq-assistant/agent.log` — routing decisions, tool calls, task queue operations, Redis bridge events, and authentication.
 
 ---
 
@@ -416,40 +371,45 @@ All logs are written to `~/.workiq-assistant/agent.log`, including agent routing
 ```
 workiq-assistant/
 ├── meeting_agent.py       # Main entry point — launcher, WebSocket/HTTP servers,
-│                          #   pywebview window, hotkey, toast notifications
+│                          #   pywebview window, hotkey, toast, task queue + Redis wiring
 ├── agent_core.py          # Core agent logic — router, skill loader, tool loader,
-│                          #   auth helpers (no hardcoded tools or skills)
+│                          #   auth helpers, shared credential (no hardcoded tools/skills)
+├── task_queue.py           # FIFO task queue — worker thread, request classification,
+│                          #   progress capture, status API, on_task_complete callback
+├── redis_bridge.py        # Azure Managed Redis bridge — inbox poller, outbox writer,
+│                          #   agent presence registration, Entra ID credential_provider
 ├── agent.py               # Console entry point — terminal-based interaction for
 │                          #   development and debugging (no UI, no background mode)
-├── outlook_helper.py      # Azure Communication Services integration — builds .ics
-│                          #   calendar invites and sends them via email
-├── chat_ui.html           # Chat UI — Markdown rendering, auth banner, progress
-│                          #   indicators, WebSocket client
-├── favicon.svg            # App icon (SVG) — used inline in the HTML UI
-├── agent_icon.png         # App icon (128×128 PNG) — used for toast notifications
-├── agent_icon.ico         # App icon (ICO) — used for pywebview taskbar icon
-├── .env                   # Environment configuration (Azure endpoints, models,
-│                          #   tenant ID, ACS settings) — not committed to git
-├── .env.example           # Template for .env with placeholder values
-├── .gitignore             # Git ignore rules
+├── outlook_helper.py      # Azure Communication Services — .ics calendar invite
+│                          #   construction, email delivery, organizer resolution
+├── chat_ui.html           # Chat UI — Markdown rendering, progress steps, remote
+│                          #   message bubbles, queue indicators, concurrent task isolation
+├── .env / .env.example    # Environment configuration (Azure endpoints, models, Redis)
 ├── requirements.txt       # Python dependencies
 ├── tools/                 # Tool modules (Python) — loaded dynamically at startup
 │   ├── query_workiq.py       # Query M365 data via WorkIQ CLI
-│   ├── log_progress.py       # Send real-time progress updates to the UI
-│   └── create_meeting_invites.py  # Build .ics invites, send via ACS
+│   ├── log_progress.py       # Real-time progress updates (rendered as markdown)
+│   ├── create_meeting_invites.py  # Build .ics invites, send via ACS
+│   └── get_task_status.py    # Report current task progress and queue depth
 ├── skills/                # Skill definitions (YAML) — loaded dynamically at startup
-│   ├── meeting_invites.yaml  # Autonomous meeting invite workflow (full model)
-│   ├── qa.yaml               # Conversational Q&A via WorkIQ (mini model)
-│   ├── general.yaml          # Greetings and small talk (mini model, no tools)
-│   └── email_summary.yaml    # Email summarization (mini model, no new code)
+│   ├── meeting_invites.yaml  # Autonomous meeting invite workflow (full model, queued)
+│   ├── qa.yaml               # Conversational Q&A via WorkIQ (mini model, queued)
+│   ├── email_summary.yaml    # Email summarization (mini model, queued)
+│   ├── task_status.yaml      # Task/queue status reporting (mini model, immediate)
+│   └── general.yaml          # Greetings and small talk (mini model, immediate)
+├── test-client/           # Console REPL test client — simulates remote sender via Redis
+│   ├── chat.py               # Push to inbox, read from outbox, request-response correlation
+│   └── requirements.txt      # redis, redis-entraid, azure-identity, python-dotenv
+├── scripts/
+│   ├── start.ps1          # Start the assistant (detached, via pythonw.exe)
+│   ├── stop.ps1           # Stop all running instances
+│   └── autostart.ps1      # Install/uninstall auto-start at Windows login
 ├── experimental/
-│   └── test_graph_calendar.py  # Test script for Microsoft Graph calendar API
-│                               #   integration (delegated permissions, creates
-│                               #   test events to verify API access)
-└── scripts/
-    ├── start.ps1          # Start the assistant (detached, via pythonw.exe)
-    ├── stop.ps1           # Stop all running pythonw.exe instances
-    └── autostart.ps1      # Install/uninstall auto-start at Windows login
+│   └── test_graph_calendar.py  # Microsoft Graph calendar API test script
+├── user-stories/          # Planning documents for task queue and Redis bridge features
+├── favicon.svg            # App icon (SVG) — inline in HTML
+├── agent_icon.png         # App icon (PNG) — toast notifications
+└── agent_icon.ico         # App icon (ICO) — taskbar
 ```
 
 ---
@@ -463,6 +423,7 @@ workiq-assistant/
 - **WorkIQ CLI** installed and on PATH (or path set in `.env`)
 - **Azure OpenAI** resource with `gpt-5.2` and `gpt-5.4-mini` model deployments
 - **Azure Communication Services** resource for sending email invites
+- **Azure Managed Redis** (optional) — for remote task delivery via Teams. Requires Entra ID authentication (passwordless, no API keys).
 
 ### Installation
 
@@ -521,6 +482,70 @@ This places a `WorkIQAssistant.vbs` launcher in `%APPDATA%\Microsoft\Windows\Sta
 
 ---
 
+## Testing Remote Task Delivery with the Test Client
+
+The `test-client/` folder contains a **console REPL** that simulates a remote sender (like a Teams relay service) by talking to the agent through the same Azure Managed Redis streams. This lets you validate the full remote-task pipeline — inbox delivery, task queue processing, outbox response — without deploying the companion cloud application.
+
+### Prerequisites
+
+- The agent must be **running** (via `.\scripts\start.ps1`)
+- `AZ_REDIS_CACHE_ENDPOINT` must be set in `.env`
+- The test client reuses the agent's `.env` (loaded from the parent directory) and its saved auth record from `~/.workiq-assistant/auth_record.json`
+
+### Running the test client
+
+```powershell
+# From the project root (uses the same .venv as the agent)
+.\.venv\Scripts\Activate.ps1
+python test-client\chat.py
+```
+
+On startup, the test client:
+
+1. **Authenticates** — Reuses the agent's cached Entra ID auth record for silent token acquisition
+2. **Connects to Redis** — Same Azure Managed Redis cluster as the agent, with `redis-entraid` credential provider
+3. **Checks agent status** — Reads `workiq:agents:{email}` to verify the agent is online and shows agent info
+4. **Enters the REPL** — Prompts `You >` for input
+
+### What to test
+
+| Test | What happens |
+|---|---|
+| Type `hello` | Message pushed to `workiq:inbox:{email}` → agent picks it up → routes to `general` skill (non-queued) → response appears in the test client console AND the agent's local chat UI shows a purple "remote" bubble |
+| Type a business query (e.g., `summarize my recent emails`) | Message queued as a business task → agent processes it → response written to `workiq:outbox:{email}` → test client displays the result |
+| Send a second request while the first is running | The second task queues at position 2. The test client blocks waiting for its specific `in_reply_to` correlation match. |
+| Ask `what is the status of my request?` from the **local chat UI** while a remote task runs | Responds immediately with progress milestones (bypasses queue via `task_status` skill) |
+
+### How it works
+
+```
+  test-client (console)              Azure Managed Redis              WorkIQ Agent
+  ──────────────────────             ────────────────────             ──────────────
+        │                                    │                              │
+        │── XADD inbox:{email} ─────────────►│                              │
+        │   {sender, text, msg_id}           │                              │
+        │                                    │◄──── XREAD inbox:{email} ────│
+        │                                    │      (5s blocking poll)      │
+        │                                    │                              │
+        │                                    │      task_queue.submit()     │
+        │                                    │      skill execution...      │
+        │                                    │                              │
+        │                                    │◄──── XADD outbox:{email} ────│
+        │                                    │      {task_id, status, text, │
+        │◄── XREAD outbox:{email} ──────────│       in_reply_to: msg_id}   │
+        │    match in_reply_to == msg_id     │                              │
+        │                                    │                              │
+        │    print response                  │                              │
+```
+
+The `msg_id` → `in_reply_to` correlation ensures the test client matches each response to its original request, even when multiple messages are in flight.
+
+### Exiting
+
+Press **Ctrl+C** or type `exit` to disconnect cleanly.
+
+---
+
 ## Configuration
 
 All configuration is in the `.env` file:
@@ -528,15 +553,19 @@ All configuration is in the `.env` file:
 | Variable | Description |
 |---|---|
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI resource endpoint |
-| `AZURE_OPENAI_CHAT_MODEL` | Full model for router + Meeting Invite Agent (e.g., `gpt-5.2`) |
+| `AZURE_OPENAI_CHAT_MODEL` | Full model for router + complex workflows (e.g., `gpt-5.2`) |
 | `AZURE_OPENAI_CHAT_MODEL_SMALL` | Mini model for Q&A + general responses (e.g., `gpt-5.4-mini`) |
 | `AZURE_OPENAI_API_VERSION` | API version (e.g., `2025-03-01-preview`) |
 | `AZURE_TENANT_ID` | Azure AD tenant ID |
 | `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
 | `ACS_ENDPOINT` | Azure Communication Services endpoint |
 | `ACS_SENDER_ADDRESS` | Verified sender email address for ACS |
+| `AZ_REDIS_CACHE_ENDPOINT` | (Optional) Azure Managed Redis endpoint (`host:port`). Enables remote task delivery. |
+| `REDIS_SESSION_TTL_SECONDS` | (Optional) Agent presence TTL in seconds (default: `86400`) |
 | `AGENT_TIMEZONE` | (Optional) IANA timezone override (auto-detected if omitted) |
 | `WORKIQ_PATH` | (Optional) Full path to WorkIQ CLI if not on PATH |
+
+**Redis is optional.** If `AZ_REDIS_CACHE_ENDPOINT` is not set, the agent runs in local-only mode — all features work except remote task delivery.
 
 ---
 
@@ -554,3 +583,5 @@ All configuration is in the `.env` file:
 | `winotify` | Windows 10/11 native toast notifications |
 | `pyyaml` | YAML parsing for skill definitions |
 | `tzlocal` | Auto-detection of the system timezone |
+| `redis` | Redis client (cluster mode support) |
+| `redis-entraid` | Entra ID credential provider for passwordless Redis authentication |

@@ -50,7 +50,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("workiq_assistant")
 
-from agent_core import run_agent, run_skill, check_azure_auth, run_az_login, reset_qa_history, get_loaded_skills, route, get_skill
+from agent_core import run_agent, run_skill, check_azure_auth, run_az_login, reset_qa_history, get_loaded_skills, route, get_skill, get_credential
 from outlook_helper import _resolve_organizer
 from task_queue import queue as task_queue
 
@@ -452,6 +452,7 @@ def main():
                 user_email=email,
                 user_name=name,
                 endpoint=redis_endpoint,
+                credential=get_credential(),
                 ttl=ttl,
             )
             task_queue.configure(
@@ -461,7 +462,7 @@ def main():
                 on_show_window=_show_window,
                 on_task_complete=_redis_bridge.on_task_done,
             )
-            _redis_bridge.start(task_queue)
+            _redis_bridge.start(task_queue, on_broadcast=_broadcast)
         except Exception as e:
             logger.warning("Redis bridge failed to start: %s — running in local-only mode", e)
     else:
