@@ -382,7 +382,8 @@
   const authBanner = document.getElementById('authBanner');
 
   let ws = null;
-  let currentAgentBubble = null;
+  let activeBubbles = new Map();  // request_id → agent bubble element
+  let lastBubble = null;          // fallback for legacy messages without request_id
   let reconnectTimer = null;
 
   // ---- WebSocket connection ----
@@ -407,7 +408,30 @@
     };
   }
 
+  function getBubble(requestId) {
+    // When a request_id is present, ONLY match its own registered bubble.
+    // Never fall back to a stale lastBubble from a previous completed task.
+    if (requestId) return activeBubbles.get(requestId) || null;
+    // Legacy messages without request_id use lastBubble as fallback.
+    return lastBubble;
+  }
+
+  function setBubble(requestId, el) {
+    if (requestId) activeBubbles.set(requestId, el);
+    lastBubble = el;
+  }
+
+  function removeBubble(requestId) {
+    if (requestId) {
+      const el = activeBubbles.get(requestId);
+      activeBubbles.delete(requestId);
+      if (lastBubble === el) lastBubble = null;
+    }
+  }
+
   function handleServerMessage(msg) {
+    const rid = msg.request_id || msg.task_id || null;
+
     switch (msg.type) {
       case 'auth_status':
         if (msg.ok) {
@@ -419,50 +443,91 @@
         }
         break;
 
-      case 'task_started':
-        setStatus('working', 'Working...');
-        currentAgentBubble = addAgentMessage('');
-        addStep(currentAgentBubble, 'working', 'Starting...');
+      case 'task_queued': {
+        // Close any working step on a previous bubble for this rid
+        const prevBub = getBubble(rid);
+        if (prevBub) markLastStepDone(prevBub);
+        const qBubble = addAgentMessage('');
+        setBubble(rid, qBubble);
+        addStep(qBubble, 'done',
+          `Your request has been queued (position ${msg.position}). I'll get to it shortly.`);
+        // Don't remove — the task_started for this same rid will reuse it later
         break;
+      }
 
-      case 'progress':
+      case 'task_started': {
         setStatus('working', 'Working...');
-        if (currentAgentBubble) {
-          markLastStepDone(currentAgentBubble);
-          if (msg.kind === 'agent') {
-            addAgentBadge(currentAgentBubble, msg.message);
-          } else {
-            addStep(currentAgentBubble, 'working', msg.message);
-          }
+        // If there's already a bubble for this request (from task_queued), reuse it
+        let bubble = getBubble(rid);
+        if (!bubble) {
+          bubble = addAgentMessage('');
+          setBubble(rid, bubble);
+        }
+        if (msg.source === 'queued') {
+          addStep(bubble, 'working', 'Processing queued request...');
+        } else if (msg.source === 'remote' || msg.source === 'teams') {
+          addStep(bubble, 'working', 'Processing remote request...');
+        } else {
+          addStep(bubble, 'working', 'Starting...');
         }
         break;
+      }
 
-      case 'task_complete':
-        setStatus('connected', 'Done');
-        if (currentAgentBubble) {
-          markLastStepDone(currentAgentBubble);
+      case 'progress': {
+        setStatus('working', 'Working...');
+        let bubble = getBubble(rid);
+        if (!bubble) {
+          bubble = addAgentMessage('');
+          setBubble(rid, bubble);
+        }
+        markLastStepDone(bubble);
+        if (msg.kind === 'agent') {
+          addAgentBadge(bubble, msg.message);
+        } else if (msg.kind === 'progress') {
+          addProgressBlock(bubble, msg.message);
+        } else {
+          addStep(bubble, 'working', msg.message);
+        }
+        break;
+      }
+
+      case 'task_complete': {
+        // Only show "Done" status if no other tasks are active
+        const remaining = activeBubbles.size - 1;  // minus the one completing
+        if (remaining <= 0) setStatus('connected', 'Done');
+        const bubble = getBubble(rid);
+        if (bubble) {
+          markLastStepDone(bubble);
           const resultDiv = document.createElement('div');
           resultDiv.className = 'md-content';
           resultDiv.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #eee;';
           resultDiv.innerHTML = renderMarkdown(msg.result);
-          currentAgentBubble.querySelector('.bubble').appendChild(resultDiv);
+          bubble.querySelector('.bubble').appendChild(resultDiv);
           scrollToBottom();
         }
-        currentAgentBubble = null;
+        removeBubble(rid);
         break;
+      }
 
-      case 'task_error':
-        setStatus('error', 'Error');
-        if (currentAgentBubble) {
-          markLastStepDone(currentAgentBubble, true);
-          addStep(currentAgentBubble, 'error', `Error: ${msg.error}`);
+      case 'task_error': {
+        const remaining = activeBubbles.size - 1;
+        if (remaining <= 0) setStatus('error', 'Error');
+        let bubble = getBubble(rid);
+        if (bubble) {
+          markLastStepDone(bubble, true);
+          addStep(bubble, 'error', `Error: ${msg.error}`);
+        } else {
+          // No bubble found — create one for the error
+          bubble = addAgentMessage('');
+          addStep(bubble, 'error', `Error: ${msg.error}`);
         }
-        currentAgentBubble = null;
+        removeBubble(rid);
         // Show sign-in banner if error is auth-related
         if (msg.error && (msg.error.includes('authentication') || msg.error.includes('sign in') || msg.error.includes('Azure CLI') || msg.error.includes('az login'))) {
           authBanner.classList.remove('hidden');
         }
         break;
+      }
 
       case 'signin_status':
         if (msg.ok) {
@@ -537,6 +602,16 @@
     scrollToBottom();
   }
 
+  function addProgressBlock(msgDiv, text) {
+    const bubble = msgDiv.querySelector('.bubble');
+    const block = document.createElement('div');
+    block.className = 'md-content';
+    block.style.cssText = 'margin-top:8px;padding-top:8px;border-top:1px solid #eee;';
+    block.innerHTML = renderMarkdown(text);
+    bubble.appendChild(block);
+    scrollToBottom();
+  }
+
   function markLastStepDone(msgDiv, isError) {
     const steps = msgDiv.querySelectorAll('.progress-step');
     if (steps.length > 0) {
@@ -586,7 +661,8 @@
     // Remove all messages, restore welcome
     chat.querySelectorAll('.message').forEach(m => m.remove());
     welcome.style.display = '';
-    currentAgentBubble = null;
+    activeBubbles.clear();
+    lastBubble = null;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'clear_history' }));
     }

@@ -1,0 +1,44 @@
+I want the agent running here accessible over messages by the user from MIcrosoft Teams channel on their mobile phone. The user would send messages, asking questions or having workflow tasks completed. 
+
+A) The user could also business workflow tasks or questions like:
+1) ask to create and send meeting invites to presenters onthe topics based on the details in the agenda document
+2) ask for a query based on the latest emails they have received and where they want a summary or whatever
+
+B) The user could ask for status queries on the tasks they inititaited already, for example any query that this agent is working on, above. For example:
+1) What is the status of my request to send meeting requests? - The agent should look at the processing log or steps and send a response to the user
+2) Is any task being executed upon now? Because I want to send you another request now
+
+The key thing is:
+
+The Agent should add all these 'business task' to a queue internally, and store/remove them in FIFO Mode.
+It should process only 'one 'Business' user request at a time. it should wait till that gets over before it processes the next request
+But in the meantime, if the user request is merely asking for status of a running business process request, it should look at the logs for that request and give a summary of the current status, reasoning over the milestone steps completed and what the agent is presently running
+
+Once a 'Business' user request is answered, it should remove that from the queue.
+But system level requests should not be added to the queue.
+
+There should be a dedicated sub agent that is listening for user messages coming from the user's mobile phone. I will talk about this more later.
+
+This sub agent should be tasked with managing the in memory queue and ensure the business tasks are being executed upon in a sequential fashion and disposed off from the in memory queue
+
+This also means that if the user accesses the chat interface in the agent here and sends a message, that should also be intercepted by the sub agent above that manages the queue and let the user know that they need to wait till a running business process gets over.
+
+when a request is picked up, it could be added to the execution log on the agent app and visible to user though it may have been triggered over the phone using a message from Microsoft Teams App
+
+
+Agent design
+- I need some design inputs in terms of how this 'Message queue' user request processing sub agent should be organized in the scheme of things
+- probably the main route agent itself should do this function? Share your thoughts on it, knowing the overall use case that has already been implemented so far
+
+
+
+Now about receiving the messages from the user:
+
+- When this Agent App starts up, it should register with an Azure Cloud based service
+- It knows who is logged in here, hence it could store the information in the cloud, indexed on user email, probably?
+- I am thinking if this needs to be an azure service bus queue, or azure managed redis (i prefer this if you think this is appropriate for this use case)
+- there should be an outbox and an inbox, indexed on the user name, whose identity was used by the agent running to register itself
+- the inbox is where the user's message from other channels would be put to, and this agent should pick those messages as they come and process them here
+- the outbox is where the agent's message would be sent to, indexed by the user's email address, meant to be consumed by the cloud based application that would deliver that to the user on Microsoft Teams
+
+

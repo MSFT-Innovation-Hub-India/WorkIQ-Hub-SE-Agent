@@ -9,6 +9,7 @@ description: >
   schedule speakers, send invites, agenda, engagement.
 model: full
 conversational: false
+queued: true
 
 tools:
   - query_workiq

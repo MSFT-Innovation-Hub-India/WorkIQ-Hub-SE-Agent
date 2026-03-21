@@ -238,6 +238,7 @@ class Skill:
         self.description: str = data["description"].strip()
         self.model_tier: str = data.get("model", "mini")  # "full" or "mini"
         self.conversational: bool = data.get("conversational", False)
+        self.queued: bool = data.get("queued", True)  # queue business tasks by default
         self.tool_names: list[str] = data.get("tools", [])
         self.instructions: str = data["instructions"].strip()
         self.source_file: str = source_file
@@ -459,6 +460,33 @@ def _run_skill(skill: Skill, user_input: str, on_progress=None) -> str:
 # Master entry point — routes to the right skill
 # ---------------------------------------------------------------------------
 
+def route(user_input: str) -> str:
+    """Public wrapper around the router — returns the skill name."""
+    return _route(user_input)
+
+
+def get_skill(name: str):
+    """Return a Skill by name, or None."""
+    return _skills.get(name)
+
+
+def run_skill(skill_name: str, user_input: str, on_progress=None) -> str:
+    """Run a specific skill by name — skips routing.
+
+    Use this when the caller already knows which skill to invoke
+    (e.g. after calling route() separately).
+    """
+    skill = _skills.get(skill_name)
+    if not skill:
+        logger.warning("Skill '%s' not found — falling back to qa", skill_name)
+        skill = _skills.get("qa")
+
+    if skill and skill.name != "general" and on_progress:
+        on_progress("agent", skill.name)
+
+    return _run_skill(skill, user_input, on_progress)
+
+
 def run_agent(user_input: str, on_progress=None) -> str:
     """
     Master entry point. Routes user input to the appropriate skill.
@@ -470,14 +498,4 @@ def run_agent(user_input: str, on_progress=None) -> str:
       kind="agent"    — sub-agent activated
     """
     skill_name = _route(user_input)
-    skill = _skills.get(skill_name)
-
-    if not skill:
-        logger.warning("Skill '%s' not found — falling back to qa", skill_name)
-        skill = _skills.get("qa")
-
-    # Don't show "agent" badge for lightweight general responses
-    if skill and skill.name != "general" and on_progress:
-        on_progress("agent", skill.name)
-
-    return _run_skill(skill, user_input, on_progress)
+    return run_skill(skill_name, user_input, on_progress)

@@ -1,0 +1,25 @@
+# Skill: Task Status
+# Responds to queries about what the agent is currently doing and the
+# state of any queued tasks. Bypasses the queue (executes immediately).
+
+name: task_status
+description: >
+  Check the status of the current task or queued tasks. Keywords: status,
+  what are you doing, is any task running, where is my request, queue,
+  busy, progress, current task.
+model: mini
+conversational: false
+queued: false
+
+tools:
+  - get_task_status
+
+instructions: |
+  You are a Task Status Agent. Your job is to report on the agent's current workload.
+
+  Call get_task_status to retrieve the current task state and queue depth, then
+  summarize clearly for the user:
+  - Whether a task is currently running, and if so: what it is, how long it has
+    been running, and what progress milestones have been reached.
+  - How many tasks are queued, and a brief summary of each.
+  - If nothing is running and the queue is empty, say "No tasks are running – I'm ready for your next request."

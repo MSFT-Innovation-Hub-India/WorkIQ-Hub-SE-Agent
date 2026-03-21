@@ -50,8 +50,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("workiq_assistant")
 
-from agent_core import run_agent, check_azure_auth, run_az_login, reset_qa_history, get_loaded_skills
+from agent_core import run_agent, run_skill, check_azure_auth, run_az_login, reset_qa_history, get_loaded_skills, route, get_skill
 from outlook_helper import _resolve_organizer
+from task_queue import queue as task_queue
+
+import uuid
 
 IS_WIN = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
@@ -120,45 +123,66 @@ async def _safe_send(ws, data: str):
 
 
 # ---------------------------------------------------------------------------
-# Agent worker
+# Agent worker — uses task queue for business tasks, inline for system tasks
 # ---------------------------------------------------------------------------
 
-_task_lock = threading.Lock()
+def _submit_or_execute(user_input: str, source: str = "ui"):
+    """Route a request: queue it if business, execute inline if system.
 
-
-def _run_task(user_input: str):
-    _broadcast({"type": "task_started"})
-    notify("WorkIQ Assistant", "Working on your request...")
-
-    def on_progress(kind: str, message: str):
-        _broadcast({"type": "progress", "kind": kind, "message": message})
+    Every request gets a unique request_id so the UI can track concurrent
+    messages in separate bubbles.
+    """
+    request_id = uuid.uuid4().hex[:8]
 
     try:
-        result = run_agent(user_input, on_progress=on_progress)
-        logger.info("Task complete:\n%s", result)
-        _broadcast({"type": "task_complete", "result": result})
-        first_line = result.strip().split("\n")[0]
-        summary = first_line[:200] + "\u2026" if len(first_line) > 200 else first_line
-        notify("Task Complete", summary)
-        # Show the window so user sees the result
-        _show_window()
+        skill_name = route(user_input)
+        skill = get_skill(skill_name)
     except Exception as e:
-        logger.error("Task failed: %s", e, exc_info=True)
-        _broadcast({"type": "task_error", "error": str(e)[:500]})
-        notify("Task Failed", str(e)[:200])
-
-
-def _start_task(user_input: str):
-    if _task_lock.locked():
-        _broadcast({"type": "task_error", "error": "A task is already running. Please wait."})
+        logger.error("Router failed: %s", e, exc_info=True)
+        _broadcast({"type": "task_error", "request_id": request_id,
+                     "error": f"Router error: {e}"})
         return
-    t = threading.Thread(target=_locked_run, args=(user_input,), daemon=True)
-    t.start()
+
+    if skill and not skill.queued:
+        # System request — execute immediately in a new thread
+        t = threading.Thread(
+            target=_run_system_task,
+            args=(request_id, skill_name, user_input),
+            daemon=True,
+        )
+        t.start()
+    else:
+        # Business request — enqueue (skill_name stored on task)
+        task = task_queue.submit_task(user_input, source=source,
+                                      skill_name=skill_name)
+        if task_queue.is_busy():
+            position = task_queue.get_queue_status()["queue_depth"]
+            _broadcast({
+                "type": "task_queued",
+                "request_id": task.id,
+                "position": position,
+            })
+        # else: worker picks it up immediately
 
 
-def _locked_run(user_input: str):
-    with _task_lock:
-        _run_task(user_input)
+def _run_system_task(request_id: str, skill_name: str, user_input: str):
+    """Run a non-queued (system) skill inline — uses run_skill to skip re-routing."""
+    _broadcast({"type": "task_started", "request_id": request_id,
+                "source": "system"})
+
+    def on_progress(kind: str, message: str):
+        _broadcast({"type": "progress", "request_id": request_id,
+                     "kind": kind, "message": message})
+
+    try:
+        result = run_skill(skill_name, user_input, on_progress=on_progress)
+        logger.info("System task [%s] complete: %.100s", request_id, result)
+        _broadcast({"type": "task_complete", "request_id": request_id,
+                     "result": result})
+    except Exception as e:
+        logger.error("System task [%s] failed: %s", request_id, e, exc_info=True)
+        _broadcast({"type": "task_error", "request_id": request_id,
+                     "error": str(e)[:500]})
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +219,7 @@ async def _handler(ws):
             if msg.get("type") == "task":
                 user_input = msg.get("input", "").strip()
                 if user_input:
-                    _start_task(user_input)
+                    _submit_or_execute(user_input, source="ui")
             elif msg.get("type") == "signin":
                 threading.Thread(target=_handle_signin, daemon=True).start()
             elif msg.get("type") == "clear_history":
@@ -402,24 +426,65 @@ def main():
     logger.info("Hotkey: %s  |  Log: %s", HOTKEY_LABEL, LOG_FILE)
     logger.info("=" * 50)
 
-    # 1. Start WebSocket server in a background thread
+    # 1. Configure the task queue
+    def _queue_runner(user_input, skill_name=None, on_progress=None):
+        """Bridge between task queue and agent_core — uses run_skill if routed."""
+        if skill_name:
+            return run_skill(skill_name, user_input, on_progress=on_progress)
+        return run_agent(user_input, on_progress=on_progress)
+
+    task_queue.configure(
+        run_agent=_queue_runner,
+        on_broadcast=_broadcast,
+        on_notify=notify,
+        on_show_window=_show_window,
+    )
+
+    # 1b. Start Redis bridge if configured (optional — remote task delivery)
+    _redis_bridge = None
+    redis_endpoint = os.environ.get("AZ_REDIS_CACHE_ENDPOINT")
+    if redis_endpoint:
+        try:
+            from redis_bridge import RedisBridge
+            name, email = _resolve_organizer()
+            ttl = int(os.environ.get("REDIS_SESSION_TTL_SECONDS", "86400"))
+            _redis_bridge = RedisBridge(
+                user_email=email,
+                user_name=name,
+                endpoint=redis_endpoint,
+                ttl=ttl,
+            )
+            task_queue.configure(
+                run_agent=_queue_runner,
+                on_broadcast=_broadcast,
+                on_notify=notify,
+                on_show_window=_show_window,
+                on_task_complete=_redis_bridge.on_task_done,
+            )
+            _redis_bridge.start(task_queue)
+        except Exception as e:
+            logger.warning("Redis bridge failed to start: %s — running in local-only mode", e)
+    else:
+        logger.info("Redis bridge disabled — AZ_REDIS_CACHE_ENDPOINT not set")
+
+    # 2. Start WebSocket server in a background thread
     server_thread = threading.Thread(target=_run_server, daemon=True)
     server_thread.start()
 
-    # 2. Register global hotkey
+    # 3. Register global hotkey
     _setup_hotkey()
 
-    # 3. Toast to let user know it's running
+    # 4. Toast to let user know it's running
     notify("WorkIQ Assistant", f"Running in background. Press {HOTKEY_LABEL} to open.")
 
-    # 4. Tell Windows this is a distinct app (not generic pythonw.exe)
+    # 5. Tell Windows this is a distinct app (not generic pythonw.exe)
     #    so the taskbar shows our custom icon instead of the Python icon.
     if IS_WIN:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
             "Microsoft.WorkIQAssistant"
         )
 
-    # 5. Create the pywebview window (starts hidden)
+    # 6. Create the pywebview window (starts hidden)
     _window = webview.create_window(
         title="WorkIQ Assistant",
         url=str(_HTML_PATH),
@@ -438,7 +503,7 @@ def main():
 
     _window.events.shown += _on_shown
 
-    # 6. Start pywebview event loop (blocks until process exits)
+    # 7. Start pywebview event loop (blocks until process exits)
     _icon_path = _SCRIPT_DIR / "agent_icon.ico"
     webview.start(debug=False, icon=str(_icon_path) if _icon_path.exists() else None)
 

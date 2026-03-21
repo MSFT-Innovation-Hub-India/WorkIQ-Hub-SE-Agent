@@ -8,3 +8,5 @@ tzlocal>=5.0
 pynput>=1.7.0
 winotify>=1.1.0
 pyyaml>=6.0
+redis>=5.0
+redis-entraid>=1.0.0

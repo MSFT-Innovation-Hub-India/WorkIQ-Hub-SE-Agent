@@ -10,6 +10,7 @@ description: >
   emails needing attention, recent emails.
 model: mini
 conversational: false
+queued: true
 
 tools:
   - query_workiq

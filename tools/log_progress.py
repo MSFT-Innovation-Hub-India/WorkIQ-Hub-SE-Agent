@@ -50,5 +50,7 @@ def handle(arguments: dict, *, on_progress=None, **kwargs) -> str:
     msg = f"{header}\n{separator}\n{body}\n{separator}\n{footer}"
     logger.info("\n%s\n", msg)
     if on_progress:
-        on_progress("progress", step_title)
+        # Send the full markdown details to the UI, not just the title
+        full_content = f"**{step_title}**\n\n{details}"
+        on_progress("progress", full_content)
     return "Logged."

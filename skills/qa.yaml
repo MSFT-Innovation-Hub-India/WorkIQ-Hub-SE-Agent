@@ -8,6 +8,7 @@ description: >
   events, documents, emails, contacts, etc.
 model: mini
 conversational: true
+queued: true
 
 tools:
   - query_workiq

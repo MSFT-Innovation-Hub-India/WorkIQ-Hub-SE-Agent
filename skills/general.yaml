@@ -9,6 +9,7 @@ description: >
   "how are you", "hey there").
 model: mini
 conversational: false
+queued: false
 
 tools: []
 
