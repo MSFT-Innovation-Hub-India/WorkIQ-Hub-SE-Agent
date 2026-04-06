@@ -268,14 +268,30 @@ class RedisBridge:
         with self._pending_lock:
             self._pending_replies[task_id] = msg_id
 
+        # Broadcast task_started so the local UI shows activity
+        if self._on_broadcast:
+            self._on_broadcast({"type": "task_started", "request_id": task_id,
+                                "source": "remote"})
+
+        def on_progress(kind: str, message: str):
+            if self._on_broadcast:
+                self._on_broadcast({"type": "progress", "request_id": task_id,
+                                    "kind": kind, "message": message})
+
         try:
-            result = run_skill(skill_name, text)
+            result = run_skill(skill_name, text, on_progress=on_progress)
             status = "completed"
             logger.info("Remote system task complete (skill=%s): %.100s", skill_name, result)
+            if self._on_broadcast:
+                self._on_broadcast({"type": "task_complete", "request_id": task_id,
+                                    "result": result})
         except Exception as e:
             logger.error("Remote system task failed (skill=%s): %s", skill_name, e, exc_info=True)
             result = str(e)
             status = "failed"
+            if self._on_broadcast:
+                self._on_broadcast({"type": "task_error", "request_id": task_id,
+                                    "error": str(e)[:500]})
 
         # Build a synthetic task to reuse on_task_done's outbox write logic
         task = TaskItem(
