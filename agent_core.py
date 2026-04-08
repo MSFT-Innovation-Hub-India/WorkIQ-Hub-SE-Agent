@@ -246,6 +246,8 @@ class Skill:
         self.queued: bool = data.get("queued", True)  # queue business tasks by default
         self.tool_names: list[str] = data.get("tools", [])
         self.instructions: str = data["instructions"].strip()
+        self.reasoning_effort: str | None = data.get("reasoning_effort")  # "low", "medium", or "high"
+        self.next_skill: str | None = data.get("next_skill")  # auto-chain to this skill on completion
         self.source_file: str = source_file
 
     @property
@@ -264,6 +266,8 @@ def _load_skills() -> dict[str, Skill]:
         logger.warning("Skills directory not found: %s", _SKILLS_DIR)
         return skills
     for path in sorted(_SKILLS_DIR.glob("*.yaml")):
+        if path.name.startswith("_"):
+            continue
         try:
             with open(path, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
@@ -405,25 +409,37 @@ def _run_skill(skill: Skill, user_input: str, on_progress=None) -> str:
 
     # Initial API call
     tools = skill.tools or []
-    response = client.responses.create(
+    api_kwargs: dict = dict(
         model=skill.model,
         instructions=skill.instructions,
         input=input_messages,
         tools=tools if tools else [],
     )
+    if skill.reasoning_effort:
+        api_kwargs["reasoning"] = {"effort": skill.reasoning_effort}
+    response = client.responses.create(**api_kwargs)
 
     # Tool-call loop (only if skill has tools)
     if tools:
         step = 1
         while True:
+            # Log any reasoning/thinking the model produced before tool calls
+            for item in response.output:
+                if hasattr(item, "type") and item.type == "reasoning":
+                    for part in getattr(item, "summary", []):
+                        logger.info("[%s] Reasoning: %s", skill.name, getattr(part, "text", ""))
+
             tool_calls = [item for item in response.output if item.type == "function_call"]
             if not tool_calls:
                 break
 
+            # Tools that produce their own visible output or are internal bookkeeping
+            _silent_tools = {"log_progress", "engagement_context"}
+
             tool_results = []
             for tc in tool_calls:
                 logger.info("[%s Step %d] Calling tool: %s", skill.name, step, tc.name)
-                if on_progress:
+                if on_progress and tc.name not in _silent_tools:
                     on_progress("step", f"Step {step}: {tc.name}")
                 result = handle_tool_call(tc.name, tc.arguments, on_progress)
                 tool_results.append({
@@ -434,13 +450,16 @@ def _run_skill(skill: Skill, user_input: str, on_progress=None) -> str:
 
             step += 1
             client = get_responses_client()
-            response = client.responses.create(
+            loop_kwargs: dict = dict(
                 model=skill.model,
                 instructions=skill.instructions,
                 input=tool_results,
                 tools=tools,
                 previous_response_id=response.id,
             )
+            if skill.reasoning_effort:
+                loop_kwargs["reasoning"] = {"effort": skill.reasoning_effort}
+            response = client.responses.create(**loop_kwargs)
 
     # Extract final text
     final_text = ""
@@ -457,6 +476,19 @@ def _run_skill(skill: Skill, user_input: str, on_progress=None) -> str:
         # Keep history manageable (last 20 messages)
         if len(history) > 20:
             _conversation_histories[skill.name] = history[-20:]
+
+    # Autonomous skill chaining — run next_skill if configured
+    if skill.next_skill:
+        next_skill_obj = _skills.get(skill.next_skill)
+        if next_skill_obj:
+            logger.info("[%s] Chaining to: %s", skill.name, skill.next_skill)
+            if on_progress:
+                on_progress("step", f"Chaining to {next_skill_obj.name}...")
+                on_progress("agent", next_skill_obj.name)
+            chain_input = final_text or "Continue with the next phase."
+            return _run_skill(next_skill_obj, chain_input, on_progress)
+        else:
+            logger.warning("[%s] next_skill '%s' not found — stopping chain", skill.name, skill.next_skill)
 
     return final_text
 
