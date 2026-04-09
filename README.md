@@ -86,6 +86,10 @@ WorkIQ-Hub-SE-Agent is **skills-driven** — each capability is a declarative YA
 | Skill | Model | Queued | Tools | What it does |
 |---|---|---|---|---|
 | **Meeting Invites** | full (`gpt-5.2`) | Yes | `query_workiq`, `log_progress`, `create_meeting_invites` | Autonomous workflow: retrieve agenda → filter speakers → resolve emails → send calendar invites |
+| **Engagement Briefing** | full (`gpt-5.2`) | Yes | `query_workiq`, `log_progress`, `engagement_context` | Phase 1: locate briefing calls, retrieve notes, extract engagement metadata. Auto-chains → Engagement Goals |
+| **Engagement Goals** | full (`gpt-5.2`) | Yes | `log_progress`, `engagement_context` | Phase 2: extract and segment customer goals from briefing notes. Auto-chains → Agenda Build |
+| **Engagement Agenda Build** | full (`gpt-5.2`) | Yes | `log_progress`, `engagement_context`, `get_hub_config` | Phase 3: build a detailed agenda markdown table with time slots, speakers, descriptions. Auto-chains → Agenda Publish |
+| **Engagement Agenda Publish** | full (`gpt-5.2`) | Yes | `log_progress`, `engagement_context`, `query_workiq` | Phase 4: create a Word document from the agenda and save to OneDrive via WorkIQ |
 | **Q&A** | mini (`gpt-5.4-mini`) | Yes | `query_workiq`, `log_progress` | Conversational Q&A about M365 data with session history |
 | **Email Summary** | mini (`gpt-5.4-mini`) | Yes | `query_workiq`, `log_progress` | Summarize unread/recent emails, highlight items needing attention |
 | **Task Status** | mini (`gpt-5.4-mini`) | No | `get_task_status` | Report current task progress and queue depth — responds instantly even while a task is running |
@@ -93,6 +97,56 @@ WorkIQ-Hub-SE-Agent is **skills-driven** — each capability is a declarative YA
 
 **Queued = Yes**: task enters the FIFO queue and executes when its turn comes.
 **Queued = No**: task executes immediately, bypassing the queue.
+
+### Engagement Agenda Workflow — Autonomous 4-Phase Skill Chain
+
+The engagement agenda workflow demonstrates how multiple skills chain together autonomously. The user provides only a **customer name** — the agent then executes four phases in sequence, each passing structured context to the next:
+
+```
+  User: "create an agenda for Contoso"
+    │
+    ▼
+  Phase 1: engagement_briefing
+    │  Find briefing calls → retrieve notes → extract metadata
+    │  Saves: metadata, participants, meeting notes
+    │  next_skill: engagement_goals
+    ▼
+  Phase 2: engagement_goals
+    │  Reason over notes → extract & segment customer goals
+    │  Saves: goals with source excerpts for traceability
+    │  next_skill: engagement_agenda_build
+    ▼
+  Phase 3: engagement_agenda_build
+    │  Load goals + hub config → build agenda table
+    │  Maps goals to sessions, assigns speakers, computes time slots
+    │  Saves: agenda_markdown
+    │  next_skill: engagement_agenda_publish
+    ▼
+  Phase 4: engagement_agenda_publish
+    │  Load agenda → ask WorkIQ to create Word document on OneDrive
+    │  Document name: Agenda-<Customer>-<Month-Year>.docx
+    ▼
+  Result: Complete agenda displayed in UI + Word doc in OneDrive
+```
+
+**Skill chaining** is driven by the `next_skill` field in each YAML definition. When a skill completes, `agent_core._run_skill()` checks for `next_skill` and immediately invokes the next phase with the completion text as input.
+
+**Inter-phase context** is passed via the `engagement_context` tool, which saves/loads structured JSON to `~/.hub-se-agent/engagement_context/<customer>.json`. Each phase adds its output (metadata, goals, agenda) to the shared context file.
+
+**Hub configuration** provides the default session start time and speaker-by-topic mapping. Phase 3 loads this via the `get_hub_config` tool to assign speakers and set time slots. Users can edit the configuration through the ⚙ Settings UI in the chat window.
+
+**Engagement type detection** — Phase 1 classifies the engagement as one of: `ADS`, `RAPID_PROTOTYPE`, `BUSINESS_ENVISIONING`, `SOLUTION_ENVISIONING`, `HACKATHON`, or `CONSULT`. Phase 3 applies type-specific rules for agenda construction:
+
+| Type | Agenda pattern |
+|---|---|
+| ADS | For each goal: customer presents requirements → Hub SE leads architecture discussion |
+| Rapid Prototype | For each goal: customer walks through requirements → hands-on prototyping (parallel tracks supported) |
+| Business Envisioning | Customer perspective, industry advisor, use-case showcase, trends — business-level descriptions |
+| Solution Envisioning | All business envisioning types + technical depth, architecture, demos, open discussions |
+
+**Description composition** — Each session description has two parts: (1) a capability-rich narrative written by the LLM describing what the Hub SE will present/demo, and (2) relevant customer goal details in italics for traceability.
+
+**WorkIQ stdin mode** — The Word document creation (Phase 4) can produce prompts that exceed the Windows command line limit (~8191 chars). The `query_workiq` tool automatically detects long questions (>7000 chars) and switches from CLI argument (`-q`) to interactive stdin mode, which has no length limit.
 
 ### Adding a new skill
 
@@ -180,6 +234,46 @@ The **entire five-step workflow is expressed as natural-language instructions**.
 | `instructions` | The complete system prompt — all the Responses API needs to orchestrate the workflow |
 
 > **Note on calendar invite delivery:** This sample uses **Azure Communication Services (ACS)** to send meeting invites via email with `.ics` attachments. Replacing the ACS-based delivery with the **WorkIQ Outlook MCP Server** (for creating events directly in Outlook) would require only swapping the `create_meeting_invites` tool implementation — no changes to agent instructions or orchestration logic.
+
+---
+
+## Hub Configuration & Settings UI
+
+Hub-specific settings — speaker assignments, default session start times, and hub identity — are stored as JSON configuration and editable through the chat UI.
+
+### Configuration architecture
+
+```
+hub_config.default.json    ← Checked into repo (defaults for Innovation Hub India)
+     │
+     │  hub_config.load() merges:
+     │    defaults ← hub_config.default.json
+     │    overrides ← ~/.hub-se-agent/hub_config.json (user edits)
+     │
+     ▼
+  Merged config returned to caller
+```
+
+- **`hub_config.default.json`** — Ships with the app. Contains default hub name, session start time, and speaker-by-topic mapping. Checked into version control.
+- **`~/.hub-se-agent/hub_config.json`** — User-specific overrides. Created when the user saves settings. Git-ignored. Only changed fields are stored.
+- **`hub_config.py`** — `load()` merges both files (user overrides win). `save(config)` writes the full config as user overrides.
+
+### Settings UI
+
+The ⚙ gear icon in the chat header opens a settings modal with:
+
+- **Innovation Hub Name** — text field
+- **Default Session Start Time** — time picker (stored as "09:00 AM" format)
+- **Speakers by Topic** — editable table with Topic, Speaker 1, Speaker 2 columns, add/remove row buttons
+
+Settings are read/written via WebSocket messages (`get_config` / `save_config`) handled in `meeting_agent.py`.
+
+### How skills use the configuration
+
+The `get_hub_config` tool returns the merged configuration as JSON. Skills (like `engagement_agenda_build`) call this tool to:
+- Set the first session start time
+- Match session topics to speakers
+- Prefer speakers who were on the briefing call
 
 ---
 
@@ -287,6 +381,7 @@ The **entire five-step workflow is expressed as natural-language instructions**.
 
 9. **Skill Sub-Agents** — Each skill operates with its own system prompt, tool set, and model tier:
    - **Meeting Invites** — `gpt-5.2`. Autonomous five-step workflow.
+   - **Engagement Agenda** — `gpt-5.2`. Four-phase chained workflow (briefing → goals → agenda build → publish).
    - **Q&A** — `gpt-5.4-mini` with conversation history.
    - **Email Summary** — `gpt-5.4-mini`. Email triage and prioritization.
    - **Task Status** — `gpt-5.4-mini`. Reports live progress from execution logs.
@@ -295,10 +390,12 @@ The **entire five-step workflow is expressed as natural-language instructions**.
 10. **Azure OpenAI Responses API** — The agentic core. Tool definitions and natural-language instructions drive autonomous tool-call orchestration. No custom workflow code — multi-step behavior emerges from the instructions alone.
 
 11. **Tool execution layer** — Self-contained Python modules in `tools/`:
-    - `query_workiq` — Runs the WorkIQ CLI to query Microsoft 365 data.
+    - `query_workiq` — Runs the WorkIQ CLI to query Microsoft 365 data. Auto-switches to stdin mode for long prompts (>7000 chars) to avoid Windows command line limits.
     - `log_progress` — Sends structured progress updates (rendered as markdown in the UI).
     - `create_meeting_invites` — Constructs `.ics` calendar invites, delivers via ACS.
-    - `get_task_status` — Returns current task progress and queue depth.
+    - `get_task_status` — Report current task progress and queue depth.
+    - `engagement_context` — Save/load structured JSON between skill phases (stored in `~/.hub-se-agent/engagement_context/`).
+    - `get_hub_config` — Return hub configuration (speakers, start time) to skills.
 
 12. **Redis Bridge** (optional) — Connects the desktop agent to Azure Managed Redis for remote task delivery:
     - **Inbox poller** — Background thread polls `workiq:inbox:{email}` via `XREAD` (5s blocking). Remote messages are submitted to the task queue and shown in the UI as purple "remote" bubbles.
@@ -388,13 +485,21 @@ hub-se-agent/
 │                          #   message bubbles, queue indicators, concurrent task isolation
 ├── .env / .env.example    # Environment configuration (Azure endpoints, models, Redis)
 ├── requirements.txt       # Python dependencies
+├── hub_config.py          # Hub configuration loader — merges defaults + user overrides
+├── hub_config.default.json # Default config (speakers, start time) — checked into repo
 ├── tools/                 # Tool modules (Python) — loaded dynamically at startup
-│   ├── query_workiq.py       # Query M365 data via WorkIQ CLI
+│   ├── query_workiq.py       # Query M365 data via WorkIQ CLI (auto stdin for long prompts)
 │   ├── log_progress.py       # Real-time progress updates (rendered as markdown)
 │   ├── create_meeting_invites.py  # Build .ics invites, send via ACS
-│   └── get_task_status.py    # Report current task progress and queue depth
+│   ├── get_task_status.py    # Report current task progress and queue depth
+│   ├── engagement_context.py # Save/load structured context between skill phases
+│   └── get_hub_config.py     # Return hub config (speakers, start time) to skills
 ├── skills/                # Skill definitions (YAML) — loaded dynamically at startup
 │   ├── meeting_invites.yaml  # Autonomous meeting invite workflow (full model, queued)
+│   ├── engagement_briefing.yaml   # Phase 1: briefing calls, notes, metadata extraction
+│   ├── engagement_goals.yaml      # Phase 2: goal extraction and segmentation
+│   ├── engagement_agenda_build.yaml  # Phase 3: agenda table with speakers and time slots
+│   ├── engagement_agenda_publish.yaml # Phase 4: Word doc creation via WorkIQ → OneDrive
 │   ├── qa.yaml               # Conversational Q&A via WorkIQ (mini model, queued)
 │   ├── email_summary.yaml    # Email summarization (mini model, queued)
 │   ├── task_status.yaml      # Task/queue status reporting (mini model, immediate)

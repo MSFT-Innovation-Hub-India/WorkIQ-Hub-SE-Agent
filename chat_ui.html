@@ -902,6 +902,10 @@
 
   // ---- Markdown rendering ----
   function renderMarkdown(text) {
+    // Convert literal \n inside markdown table cells to <br> before parsing.
+    // Markdown tables require single-line rows, so we replace \n within
+    // pipe-delimited rows with <br> to preserve multi-line content.
+    text = text.replace(/^(\|.+\|)$/gm, row => row.replace(/\\n/g, '<br>'));
     let html;
     if (typeof marked !== 'undefined') {
       try { html = marked.parse(text); } catch(e) { html = escapeHtml(text).replace(/\n/g, '<br>'); }

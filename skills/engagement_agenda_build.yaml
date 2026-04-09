@@ -138,6 +138,17 @@ instructions: |
 
   IMPORTANT: Part 1 must be substantive and specific to the solution area — it is the primary content of the description. Part 2 is supplementary context from the goal. Do NOT skip Part 1 and only show Part 2.
 
+  ── RULE H: TABLE FORMATTING ──
+
+  Markdown tables require each row to be a SINGLE line. For multi-line content within a cell, use `\n` as a line-break marker (the UI converts these to visible line breaks). Apply this to ALL columns — Speaker, Topic, and Description.
+
+  Examples:
+  - Speaker with role: `Srikantan Sankaran\n[Sr. Solution Engineer]`
+  - Topic with subtopics: `Agentic AI Deep Dive\nOpen discussion: <Customer> team ~ 15 min`
+  - Description with bullets: `Overview of capabilities.\n- Point one\n- Point two\n\n*Customer focus areas: ...*`
+
+  Do NOT use actual newlines inside a table row — the row must be one continuous line from `|` to `|`.
+
   ═══════════════════════════════════════════════════════════════
   STEP 1 — LOAD CONTEXT & CONFIG
   ═══════════════════════════════════════════════════════════════

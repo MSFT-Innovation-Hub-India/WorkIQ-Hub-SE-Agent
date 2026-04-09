@@ -42,17 +42,30 @@ def handle(arguments: dict, *, on_progress=None, workiq_cli=None, **kwargs) -> s
     question = arguments["question"]
     if not workiq_cli:
         return "Error: workiq CLI not found. Install it or set WORKIQ_PATH in .env"
-    logger.info("[WorkIQ] Querying: %s", question)
+    logger.info("[WorkIQ] Querying: %s", question[:200])
     if on_progress:
-        on_progress("tool", f"Querying WorkIQ: {question}")
+        on_progress("tool", f"Querying WorkIQ: {question[:200]}")
     try:
-        result = subprocess.run(
-            [workiq_cli, "ask", "-q", question],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            creationflags=_NO_WINDOW,
-        )
+        # Windows command line limit is ~8191 chars. For long questions,
+        # pipe via stdin in interactive mode instead of using -q argument.
+        if len(question) > 7000:
+            logger.info("[WorkIQ] Question too long for CLI arg (%d chars), using stdin", len(question))
+            result = subprocess.run(
+                [workiq_cli, "ask"],
+                input=question + "\n",
+                capture_output=True,
+                text=True,
+                timeout=180,
+                creationflags=_NO_WINDOW,
+            )
+        else:
+            result = subprocess.run(
+                [workiq_cli, "ask", "-q", question],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                creationflags=_NO_WINDOW,
+            )
         if result.returncode != 0:
             return f"WorkIQ error (exit code {result.returncode}): {result.stderr.strip()}"
         output = result.stdout.strip()
