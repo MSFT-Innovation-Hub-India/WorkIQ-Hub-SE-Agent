@@ -44,11 +44,33 @@ Required env vars: `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_CHAT_MODEL`, `AZURE_OP
 
 Tools are auto-discovered from `tools/*.py` (files starting with `_` are skipped).
 
-**New skill** — create `skills/<name>.yaml` (or `skills/<group>/<name>.yaml` for grouped chains) with fields: `name`, `description`, `model` (`"full"` | `"mini"`), `conversational` (bool), `queued` (bool), `tools` (list), `instructions` (str). Mark chained internal skills with `[INTERNAL` in `description` to exclude from routing.
+**New skill** — create `skills/<name>.yaml` (or `skills/<group>/<name>.yaml` for grouped chains) with fields: `name`, `description`, `model` (`"full"` | `"mini"`), `conversational` (bool), `queued` (bool), `tools` (list), `instructions` (str). Optional: `next_skill` (str) for chaining.
+
+Mark chained internal skills with `[INTERNAL` in `description` to exclude from routing.
 
 Skills are auto-discovered recursively from `skills/**/*.yaml`. The router prompt is rebuilt automatically from all non-internal skill descriptions. Greetings and small talk are handled directly by the router (classified as `"none"`) without invoking a skill.
 
 No restart needed when editing YAML skill instructions — but new files require a restart.
+
+### Conversational skills
+
+Set `conversational: true` when the skill needs multi-turn context (follow-up Q&A, human-in-the-loop confirmation). Conversation history is stored in `_conversation_histories[skill.name]`, bounded to 20 messages, and automatically cleared on fresh invocations (prevents stale context across different engagements).
+
+### Human-in-the-loop confirmation pattern
+
+To add a user confirmation checkpoint to a skill:
+
+1. Set `conversational: true` — needed for turn detection via conversation history
+2. Structure instructions as multi-turn: Turn 1 presents candidates + emits `[AWAITING_CONFIRMATION]`; Turn 2+ handles confirmation, corrections, or re-asks
+3. `[AWAITING_CONFIRMATION]` in final text → `agent_core` sets `_active_session`, strips marker, returns to user without chaining. Router routes the user's next message back to the same skill.
+4. Normal completion (no markers) → clears `_active_session`, chains to `next_skill` if configured
+5. See `skills/hub-agenda-creation/engagement_briefing.yaml` for the reference implementation
+
+### Skill chaining
+
+Set `next_skill: <skill_name>` to auto-chain to the next phase on completion. Control flow markers:
+- `[STOP_CHAIN]` — halt chain on errors, clear active session
+- `[AWAITING_CONFIRMATION]` — pause for user input, do NOT chain until user confirms
 
 ## Conventions
 
@@ -57,7 +79,8 @@ No restart needed when editing YAML skill instructions — but new files require
 - **WebSocket messages** — JSON with `type` field. Client sends `task`, `signin`, `clear_history`. Server sends `task_started`, `progress`, `task_complete`, `task_error`, `auth_status`, `skills_list`.
 - **Request IDs** — every request gets `uuid.uuid4().hex[:8]`, used across WebSocket, UI, Redis.
 - **Progress callback chain** — `on_progress(kind, message)` flows from `meeting_agent` → `agent_core` → tools.
-- **Skill chaining gates** — If a skill’s final text contains `[STOP_CHAIN]`, `agent_core` skips chaining to `next_skill`. Skills use this to gate on errors (e.g., no briefing calls found).
+- **Skill chaining gates** — If a skill's final text contains `[STOP_CHAIN]`, `agent_core` skips chaining to `next_skill` and clears any active session. Skills use this to gate on errors (e.g., no briefing calls found).
+- **Human-in-the-loop confirmation** — If a skill's final text contains `[AWAITING_CONFIRMATION]`, `agent_core` sets `_active_session` with the skill name, strips the marker, and returns the text to the user without chaining. The router detects the active session and routes the user's next message back to the same skill. The skill (which must be `conversational: true`) checks its conversation history to determine it is on Turn 2+ and handles the confirmation. Once the skill completes normally (no marker), the active session is cleared and chaining proceeds.
 
 ## Pitfalls
 

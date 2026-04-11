@@ -340,10 +340,27 @@ logger.debug("Router prompt:\n%s", ROUTER_PROMPT)
 
 def _route(user_input: str) -> str:
     """Classify user intent and return the skill name."""
+    # If there's an active session awaiting confirmation, inject context
+    prompt = ROUTER_PROMPT
+    if _active_session:
+        active_skill = _active_session["skill_name"]
+        prompt += (
+            "\n\n"
+            "IMPORTANT CONTEXT: There is an active session for the "
+            f'"{active_skill}" skill that is currently awaiting user confirmation. '
+            "If the user's message is responding to this active session "
+            "(e.g. confirming, correcting, providing new information, answering '"
+            "a question that was asked), classify it as "
+            f'{{"skill": "{active_skill}"}}. '
+            "If the message is clearly unrelated (e.g. a greeting, a status check, "
+            "a completely different question), classify it normally."
+        )
+        logger.info("[Router] Active session detected for '%s' — injecting context", active_skill)
+
     client = get_responses_client()
     response = client.responses.create(
         model=CHAT_MODEL,
-        instructions=ROUTER_PROMPT,
+        instructions=prompt,
         input=[{"role": "user", "content": user_input}],
         tools=[],
     )
@@ -387,11 +404,22 @@ def handle_tool_call(name: str, arguments: str, on_progress=None) -> str:
 
 _conversation_histories: dict[str, list[dict]] = {}
 
+# Active session — tracks when a multi-turn skill is awaiting user input
+# Structure: {"skill_name": str, "stage": str} or None
+_active_session: dict | None = None
+
+
+def get_active_session() -> dict | None:
+    """Return the current active session, if any."""
+    return _active_session
+
 
 def reset_qa_history():
-    """Clear all conversational skill histories."""
+    """Clear all conversational skill histories and active session."""
+    global _active_session
     _conversation_histories.clear()
-    logger.info("Conversation histories cleared.")
+    _active_session = None
+    logger.info("Conversation histories and active session cleared.")
 
 
 # ---------------------------------------------------------------------------
@@ -492,9 +520,28 @@ def _run_skill(skill: Skill, user_input: str, on_progress=None) -> str:
         if len(history) > 20:
             _conversation_histories[skill.name] = history[-20:]
 
+    # --- Active session & chaining logic ---
+    global _active_session
+
+    # [AWAITING_CONFIRMATION] — skill is pausing for user input
+    if "[AWAITING_CONFIRMATION]" in (final_text or ""):
+        _active_session = {"skill_name": skill.name, "stage": "awaiting_confirmation"}
+        final_text = final_text.replace("[AWAITING_CONFIRMATION]", "").strip()
+        logger.info("[%s] Awaiting user confirmation — session active", skill.name)
+        return final_text
+
+    # [STOP_CHAIN] — skill hit an error, stop chaining and clear session
+    if "[STOP_CHAIN]" in (final_text or ""):
+        _active_session = None
+        logger.info("[%s] Stop chain — clearing active session", skill.name)
+        # Don't strip [STOP_CHAIN] here — it's already handled by existing code
+        return final_text
+
+    # Normal completion — clear active session and chain if configured
+    _active_session = None
+
     # Autonomous skill chaining — run next_skill if configured
-    # Skills can emit [STOP_CHAIN] in their final text to prevent chaining
-    if skill.next_skill and "[STOP_CHAIN]" not in (final_text or ""):
+    if skill.next_skill:
         next_skill_obj = _skills.get(skill.next_skill)
         if next_skill_obj:
             logger.info("[%s] Chaining to: %s", skill.name, skill.next_skill)
@@ -556,6 +603,13 @@ def run_skill(skill_name: str, user_input: str, on_progress=None) -> str:
     if not skill:
         logger.warning("Skill '%s' not found — falling back to qa", skill_name)
         skill = _skills.get("qa")
+
+    # If this is a fresh invocation of a conversational skill (not a continuation
+    # of an active session), clear its conversation history for a clean start.
+    if (skill and skill.conversational
+            and not (_active_session and _active_session.get("skill_name") == skill_name)):
+        _conversation_histories.pop(skill.name, None)
+        logger.info("[%s] Fresh invocation — cleared conversation history", skill.name)
 
     if skill and on_progress:
         on_progress("agent", skill.name)

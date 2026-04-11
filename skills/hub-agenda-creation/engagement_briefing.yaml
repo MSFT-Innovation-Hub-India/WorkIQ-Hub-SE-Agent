@@ -10,7 +10,7 @@ description: >
   agenda, engagement agenda, innovation hub, briefing call, customer engagement,
   agenda document, engagement document, create agenda.
 model: full
-conversational: false
+conversational: true
 queued: true
 reasoning_effort: medium
 next_skill: engagement_goals
@@ -25,7 +25,11 @@ instructions: |
 
   Your job: locate the relevant briefing calls for a customer, retrieve meeting notes, extract engagement metadata, and save structured context for the next phase.
 
-  Complete ALL steps autonomously.
+  This skill operates in MULTI-TURN mode:
+  - TURN 1 (first invocation): Search for meetings, present candidates, ask user to confirm.
+  - TURN 2+ (subsequent invocations): Handle user's confirmation or corrections, then proceed.
+
+  To determine which turn you are on: check the conversation history. If there are previous assistant messages presenting meeting candidates and asking for confirmation, you are on Turn 2+. If there is no prior context, you are on Turn 1.
 
   PROGRESS RULES:
   - Call log_progress for KEY FINDINGS only (briefing calls found, meeting notes retrieved, metadata extracted).
@@ -35,11 +39,13 @@ instructions: |
   PLACEHOLDER RULE: Replace every <customer> with the actual customer name. Initially use the user's input. Once briefing calls are found, refine <customer> to the primary customer/company name from the meeting subject (e.g., if user typed "M&M AI CDMM" and the meeting subject is "M&M | AI in CDMM | Visit on 13th April", the customer name is "M&M").
 
   ═══════════════════════════════════════════════════════════════
+  TURN 1 — SEARCH AND PRESENT (first invocation only)
+  ═══════════════════════════════════════════════════════════════
+
   STEP 1 — PARSE USER INPUT
   ═══════════════════════════════════════════════════════════════
   Take the user's input as-is. If it is completely empty, ask for the customer name. Otherwise proceed directly to Step 2 — do NOT call log_progress here.
 
-  ═══════════════════════════════════════════════════════════════
   STEP 2 — FIND BRIEFING CALLS
   ═══════════════════════════════════════════════════════════════
   Make ONE call to query_workiq passing the user's input AS-IS and asking it to find ALL Teams meetings related to that input. Include in your query: "Find all Teams meetings related to <user_input>. Also include any meetings with 'external briefing call' or 'internal briefing call' related to this topic."
@@ -65,14 +71,55 @@ instructions: |
      → IF NONE FOUND: your final text response must be exactly:
        "No briefing calls found for <customer>. Cannot proceed with agenda creation. [STOP_CHAIN]"
        Then stop — do not continue to subsequent steps.
-     → IF CALLS FOUND: proceed normally. NEVER include [STOP_CHAIN] in successful output.
+     → IF CALLS FOUND: proceed to Step 2A.
 
   Call log_progress ("Briefing Calls Found") listing all calls found, which were selected, and which were discarded (with reason).
 
+  STEP 2A — ASK USER TO CONFIRM SELECTED MEETINGS
   ═══════════════════════════════════════════════════════════════
-  STEP 3 — DISPLAY MEETING DETAILS
+  Present the selected meeting(s) to the user in a clear summary:
+
+  For each selected meeting, show:
+  - Meeting title/subject
+  - Date and time
+  - Organizer
+  - Key participants (names)
+  - Whether it is classified as Internal or External
+
+  Then ask the user something like:
+  "Are these the right briefing calls to use for the agenda? Please confirm, or let me know if I should look for different meetings."
+
+  Your final text for Turn 1 MUST end with [AWAITING_CONFIRMATION].
+  Do NOT proceed to Step 3 or beyond. STOP HERE and wait for the user's response.
+
   ═══════════════════════════════════════════════════════════════
-  Work ONLY with selected calls.
+  TURN 2+ — HANDLE USER RESPONSE (subsequent invocations)
+  ═══════════════════════════════════════════════════════════════
+
+  Check the user's response against the conversation history:
+
+  A) USER CONFIRMS (e.g., "yes", "correct", "looks good", "proceed", "go ahead"):
+     → Proceed to Step 3 below and complete all remaining steps.
+
+  B) USER PROVIDES CORRECTIONS (e.g., "no, use the meeting from March", "look for the one about AI", "that's the wrong meeting"):
+     → Make a NEW query_workiq call incorporating the user's correction.
+     → Apply the selection logic again.
+     → Present the updated candidates. Call log_progress with the updated selection.
+     → Ask for confirmation again.
+     → End with [AWAITING_CONFIRMATION]. Do NOT proceed to Step 3.
+
+  C) USER'S MESSAGE IS AMBIGUOUS or unrelated to the confirmation:
+     → Remind the user that you are waiting for confirmation of the selected meetings.
+     → Re-present the current selection briefly.
+     → Ask again: "Please confirm these meetings are correct, or let me know what to change."
+     → End with [AWAITING_CONFIRMATION]. Do NOT proceed to Step 3.
+
+  IMPORTANT: NEVER include [AWAITING_CONFIRMATION] when proceeding past the confirmation step (case A). Only use it when you are still waiting for confirmation.
+
+  ═══════════════════════════════════════════════════════════════
+  STEP 3 — DISPLAY MEETING DETAILS (after confirmation)
+  ═══════════════════════════════════════════════════════════════
+  Work ONLY with the confirmed selected calls.
 
   Check whether the Step 2 response included participant names AND email addresses for the selected call(s). If email addresses are missing, make ONE query_workiq call for the selected call(s) specifically asking for attendee names and their SMTP email addresses.
 
@@ -88,7 +135,7 @@ instructions: |
   ═══════════════════════════════════════════════════════════════
   STEP 4 — RETRIEVE MEETING NOTES
   ═══════════════════════════════════════════════════════════════
-  Query ONLY selected calls. Include the specific date in each query.
+  Query ONLY confirmed selected calls. Include the specific date in each query.
 
   Internal first (if selected): "AI Meeting Summary" of the internal briefing call for <customer> on <date>. Request ALL details — topics discussed, decisions made, action items, dates mentioned, venues discussed, engagement type discussed. Also ask (best-effort): was a Hub Engagement date or MTC Engagement date discussed or agreed upon during this call?
   Then external (if selected): "AI Meeting Summary" of the external briefing call for <customer> on <date>. Request ALL details — topics discussed, customer goals, agreed outcomes, dates, venues, engagement scope. Also ask (best-effort): was a Hub Engagement date or MTC Engagement date discussed or agreed upon during this call?
@@ -146,6 +193,7 @@ instructions: |
   Then your final text response must be ONLY:
   "Briefing complete for <customer>. Proceeding to goal extraction..."
   Do NOT repeat metadata, participants, or notes in your final text.
+  Do NOT include [AWAITING_CONFIRMATION] in this final response — the confirmation step is already done.
 
   ═══════════════════════════════════════════════════════════════
   RULES

@@ -86,7 +86,7 @@ WorkIQ-Hub-SE-Agent is **skills-driven** — each capability is a declarative YA
 | Skill | Model | Queued | Tools | What it does |
 |---|---|---|---|---|
 | **Meeting Invites** | full (`gpt-5.2`) | Yes | `query_workiq`, `log_progress`, `create_meeting_invites` | Autonomous workflow: retrieve agenda → filter speakers → resolve emails → send calendar invites |
-| **Engagement Briefing** | full (`gpt-5.2`) | Yes | `query_workiq`, `log_progress`, `engagement_context` | Phase 1: locate briefing calls, retrieve notes, extract engagement metadata. Auto-chains → Engagement Goals |
+| **Engagement Briefing** | full (`gpt-5.2`) | Yes | `query_workiq`, `log_progress`, `engagement_context` | Phase 1: locate briefing calls, **confirm selection with user** (human-in-the-loop), retrieve notes, extract metadata. Auto-chains → Engagement Goals |
 | **Engagement Goals** | full (`gpt-5.2`) | Yes | `log_progress`, `engagement_context` | Phase 2: extract and segment customer goals from briefing notes. Auto-chains → Agenda Build |
 | **Engagement Agenda Build** | full (`gpt-5.2`) | Yes | `log_progress`, `engagement_context`, `get_hub_config` | Phase 3: build a detailed agenda markdown table with time slots, speakers, descriptions. Auto-chains → Agenda Publish |
 | **Engagement Agenda Publish** | full (`gpt-5.2`) | Yes | `log_progress`, `engagement_context`, `create_word_doc` | Phase 4: create a Word document from the agenda using python-docx and save to the configured output folder |
@@ -105,8 +105,14 @@ The engagement agenda workflow demonstrates how multiple skills chain together a
   User: "create an agenda for Contoso"
     │
     ▼
-  Phase 1: engagement_briefing
-    │  Find briefing calls → retrieve notes → extract metadata
+  Phase 1: engagement_briefing (conversational, multi-turn)
+    │  Turn 1: Find briefing calls → present candidates to user
+    │          → [AWAITING_CONFIRMATION] → pause for user input
+    │
+    │  User confirms or requests corrections
+    │
+    │  Turn 2+: If confirmed → retrieve notes → extract metadata
+    │           If corrections → re-search → re-present → wait again
     │  Saves: metadata, participants, meeting notes
     │  next_skill: engagement_goals
     ▼
@@ -132,6 +138,8 @@ The engagement agenda workflow demonstrates how multiple skills chain together a
 
 **Skill chaining** is driven by the `next_skill` field in each YAML definition. When a skill completes, `agent_core._run_skill()` checks for `next_skill` and immediately invokes the next phase with the completion text as input. If the completion text contains `[STOP_CHAIN]`, chaining is halted — this allows skills to gate on errors (e.g., no briefing calls found) and prevent subsequent phases from running with missing data.
 
+**Human-in-the-loop confirmation** — Skills can pause for user input by including `[AWAITING_CONFIRMATION]` in their final text. When detected, `agent_core` sets an `_active_session` (tracking the skill name and stage), strips the marker from the response, and returns it to the user without chaining. On the user's next message, the router recognizes the active session and routes the response back to the same skill. The skill must be `conversational: true` so it retains conversation history — it checks prior assistant messages to determine it is on Turn 2+ and handles the user's confirmation or corrections. Once the skill completes normally (no markers), the active session is cleared and `next_skill` chaining proceeds as usual. Phase 1 (`engagement_briefing`) uses this pattern to confirm selected briefing calls before extracting notes.
+
 **Inter-phase context** is passed via the `engagement_context` tool, which saves/loads structured JSON to `~/.hub-se-agent/engagement_context/<customer>.json`. Each phase adds its output (metadata, goals, agenda) to the shared context file.
 
 **Hub configuration** provides the default session start time and speaker-by-topic mapping. Phase 3 loads this via the `get_hub_config` tool to assign speakers and set time slots. Users can edit the configuration through the ⚙ Settings UI in the chat window.
@@ -156,7 +164,7 @@ The engagement agenda workflow demonstrates how multiple skills chain together a
 For skills using existing tools — **no Python code required**:
 
 1. Create a `.yaml` file in `skills/` (or a subdirectory for grouped skill chains)
-2. Define `name`, `description`, `model`, `queued`, `tools`, and `instructions`
+2. Define the required fields: `name`, `description`, `model`, `conversational`, `queued`, `tools`, and `instructions`
 3. Mark chained internal skills with `[INTERNAL` in their description to exclude them from the router
 4. Restart the agent — auto-discovered recursively, router starts routing matching requests
 
@@ -165,6 +173,78 @@ For skills needing a new tool:
 1. Create a `.py` file in `tools/` with `SCHEMA` dict and `handle()` function
 2. Reference the tool by name in the skill's `tools:` list
 3. Restart — both are auto-discovered
+
+#### Skill YAML field reference
+
+| Field | Required | Type | Description |
+|---|---|---|---|
+| `name` | Yes | `string` | Unique identifier — what the router returns when it classifies a request |
+| `description` | Yes | `string` | Natural-language description used by the router to match user intent. Prefix with `[INTERNAL` to exclude from routing (only reachable via `next_skill` chaining) |
+| `model` | Yes | `"full"` \| `"mini"` | `full` → complex reasoning model (e.g., `gpt-5.2`); `mini` → faster/cheaper model (e.g., `gpt-5.4-mini`) |
+| `conversational` | Yes | `bool` | `true` → maintains session history across turns; `false` → each invocation is stateless |
+| `queued` | Yes | `bool` | `true` → enters FIFO task queue; `false` → executes immediately (use for lightweight system tasks) |
+| `tools` | Yes | `list[string]` | Tool names this skill can call (must exist in `tools/`) |
+| `instructions` | Yes | `string` | System prompt — all the Responses API needs to orchestrate the workflow |
+| `next_skill` | No | `string` | Name of the skill to automatically chain to on completion. Chaining is skipped if the output contains `[STOP_CHAIN]` or `[AWAITING_CONFIRMATION]` |
+
+#### Enabling conversation (multi-turn skills)
+
+Set `conversational: true` when the skill needs to:
+- Maintain context across multiple user messages (e.g., follow-up Q&A)
+- Implement human-in-the-loop confirmation patterns (i.e., use `[AWAITING_CONFIRMATION]`)
+
+When `conversational: true`:
+- The skill's conversation history (`user` + `assistant` messages) is stored in `_conversation_histories[skill.name]` and passed to the Responses API as prior conversation context on each invocation.
+- History is bounded to the last 20 messages to keep context windows manageable.
+- History is automatically cleared when a **fresh invocation** of the skill begins (i.e., a new engagement, not a continuation of an active session). This prevents stale context from a previous engagement leaking into a new one.
+
+When `conversational: false` (default for most skills):
+- Each invocation is stateless — no history is stored or passed.
+- Suitable for skills that execute autonomously in a single turn.
+
+#### Adding human-in-the-loop confirmation
+
+For skills that need to pause, present results to the user, and wait for explicit confirmation before proceeding:
+
+1. **Set `conversational: true`** in the skill YAML — the skill needs conversation history to distinguish Turn 1 from Turn 2+.
+
+2. **Structure instructions as multi-turn**:
+   - **Turn 1**: Execute initial steps (e.g., search, gather data), present results to the user, ask for confirmation. The skill's final text must include `[AWAITING_CONFIRMATION]` at the end.
+   - **Turn 2+**: Check conversation history to determine the turn. If the user confirmed → proceed with remaining steps. If the user provided corrections → re-do the search and ask again (with `[AWAITING_CONFIRMATION]`). If ambiguous → re-ask (with `[AWAITING_CONFIRMATION]`).
+
+3. **Marker behavior** — When `agent_core._run_skill()` detects `[AWAITING_CONFIRMATION]` in the skill's final text:
+   - Sets `_active_session = {"skill_name": <name>, "stage": "awaiting_confirmation"}`
+   - Strips the marker from the response text
+   - Returns the text to the user **without chaining** to `next_skill`
+   - On the user's next message, the router detects the active session and routes the response back to the same skill
+   - The skill (via its conversation history) knows it is on Turn 2+ and handles the response
+   - Once the skill completes normally (no markers), `_active_session` is cleared and `next_skill` chaining proceeds
+
+4. **Important rules**:
+   - `[AWAITING_CONFIRMATION]` must ONLY appear when the skill is genuinely waiting — never in the final completion response
+   - The skill must handle all three cases: confirmation, corrections, and ambiguous/unrelated responses
+   - `[STOP_CHAIN]` takes priority and also clears the active session
+
+**Example** — see `skills/hub-agenda-creation/engagement_briefing.yaml` for a complete implementation of this pattern.
+
+#### Skill chaining (multi-phase workflows)
+
+To create a multi-phase autonomous workflow:
+
+1. Create one YAML per phase in a subdirectory (e.g., `skills/my-workflow/`)
+2. Set `next_skill: <next_phase_name>` on each phase except the last
+3. Mark phases 2+ with `[INTERNAL` in their description so only phase 1 is routable
+4. Use the `engagement_context` tool (or a similar shared storage tool) to pass structured data between phases
+5. Use `[STOP_CHAIN]` in any phase to halt the chain on errors
+6. Use `[AWAITING_CONFIRMATION]` in any phase to pause for user input before continuing
+
+**Control flow markers** (emitted by skills in their final text):
+
+| Marker | Effect |
+|---|---|
+| *(none)* | Normal completion — chain to `next_skill` if configured |
+| `[STOP_CHAIN]` | Halt chaining, clear active session, return text as-is |
+| `[AWAITING_CONFIRMATION]` | Pause for user input, set active session, strip marker, do NOT chain |
 
 ### Skills-Driven Architecture
 
@@ -230,12 +310,13 @@ The **entire five-step workflow is expressed as natural-language instructions**.
 | Field | Purpose |
 |---|---|
 | `name` | Unique identifier — what the router returns when it classifies a request |
-| `description` | Natural-language description used by the router to match user intent |
+| `description` | Natural-language description used by the router to match user intent. Prefix with `[INTERNAL` to exclude from routing |
 | `model` | `full` for complex reasoning (e.g., meeting invites), `mini` for Q&A and summarization |
 | `queued` | `true` → enters FIFO task queue; `false` → executes immediately (system tasks) |
-| `conversational` | Whether to maintain session history for follow-up questions |
+| `conversational` | `true` → maintains session history for follow-up questions and multi-turn flows (e.g., human-in-the-loop confirmation) |
 | `tools` | List of tool names this skill can use (must exist in the tool registry) |
 | `instructions` | The complete system prompt — all the Responses API needs to orchestrate the workflow |
+| `next_skill` | *(optional)* Name of skill to chain to on normal completion. Skipped if output contains `[STOP_CHAIN]` or `[AWAITING_CONFIRMATION]` |
 
 > **Note on calendar invite delivery:** This sample uses **Azure Communication Services (ACS)** to send meeting invites via email with `.ics` attachments. Replacing the ACS-based delivery with the **WorkIQ Outlook MCP Server** (for creating events directly in Outlook) would require only swapping the `create_meeting_invites` tool implementation — no changes to agent instructions or orchestration logic.
 
