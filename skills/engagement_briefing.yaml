@@ -32,18 +32,21 @@ instructions: |
   - Do NOT call log_progress for internal operations (context load/save, self-review, intermediate decisions).
   - Use milestone=true for phase completion banners.
 
-  PLACEHOLDER RULE: Replace every <customer> with the actual customer name from the user's request.
+  PLACEHOLDER RULE: Replace every <customer> with the actual customer name. Initially use the user's input. Once briefing calls are found, refine <customer> to the primary customer/company name from the meeting subject (e.g., if user typed "M&M AI CDMM" and the meeting subject is "M&M | AI in CDMM | Visit on 13th April", the customer name is "M&M").
 
   ═══════════════════════════════════════════════════════════════
-  STEP 1 — IDENTIFY CUSTOMER
+  STEP 1 — PARSE USER INPUT
   ═══════════════════════════════════════════════════════════════
-  Extract the customer name. If missing or ambiguous, ask. Otherwise proceed.
-  Call log_progress with milestone=true, step_title="Customer Identified", details="Customer name: <customer>".
+  Take the user's input as-is. If it is completely empty, ask for the customer name. Otherwise proceed directly to Step 2 — do NOT call log_progress here.
 
   ═══════════════════════════════════════════════════════════════
   STEP 2 — FIND BRIEFING CALLS
   ═══════════════════════════════════════════════════════════════
-  Make ONE call to query_workiq asking it to find ALL Teams meetings whose title contains "external briefing call <customer>" or "internal briefing call <customer>". In this single query, explicitly request the following fields for EVERY match:
+  Make ONE call to query_workiq passing the user's input AS-IS and asking it to find ALL Teams meetings related to that input. Include in your query: "Find all Teams meetings related to <user_input>. Also include any meetings with 'external briefing call' or 'internal briefing call' related to this topic."
+
+  WorkIQ is agentic and will handle fuzzy matching, keyword interpretation, and partial matches on its own — do NOT preprocess, split, or extract keywords from the user's input.
+
+  In this single query, explicitly request the following fields for EVERY match:
   - Full meeting title/subject
   - Meeting date and time (with timezone)
   - Organizer
@@ -54,10 +57,15 @@ instructions: |
   This single response must give you enough information to apply the selection logic below and classify participants — avoid follow-up queries for the same data.
 
   SELECTION LOGIC:
-  1. Take the most recent briefing call.
-  2. If it is an external call → also include an internal call that occurred within 1 month before it (if one exists). Older internal calls belong to a prior engagement — discard them.
-  3. If it is an internal call → use it alone. No external call is expected yet.
-  4. At least one call must be found. If none found, inform the user and stop.
+  1. Prefer meetings with "briefing call" in the title. If none, use the best match from the broader keyword search.
+  2. Take the most recent briefing/matching call.
+  3. If it is an external call → also include an internal call that occurred within 1 month before it (if one exists). Older internal calls belong to a prior engagement — discard them.
+  4. If it is an internal call → use it alone. No external call is expected yet.
+  5. At least one call must be found.
+     → IF NONE FOUND: your final text response must be exactly:
+       "No briefing calls found for <customer>. Cannot proceed with agenda creation. [STOP_CHAIN]"
+       Then stop — do not continue to subsequent steps.
+     → IF CALLS FOUND: proceed normally. NEVER include [STOP_CHAIN] in successful output.
 
   Call log_progress ("Briefing Calls Found") listing all calls found, which were selected, and which were discarded (with reason).
 
@@ -97,7 +105,7 @@ instructions: |
   From the consolidated notes, extract:
 
   (I) VENUE — One of: Microsoft Innovation Hub Office | <customer> Office | Virtual Meeting.
-  Default to "Microsoft Innovation Hub Premises" if not mentioned (note the default in log).
+  Default to "Microsoft Innovation Hub Office" unless the notes explicitly state a different venue. The assumption is that the engagement will be in-person at the Innovation Hub unless the notes clearly say otherwise (e.g. "virtual", "remote", "online", or the customer's office location is named).
 
   (II) DATE — Look for an explicitly mentioned Hub Engagement date or MTC Engagement date in the notes ("Hub" and "MTC" are used interchangeably). The date must refer to the Innovation Hub / MTC engagement session itself — NOT the date of the briefing call. If the notes explicitly state a Hub/MTC engagement date, use it (flag if past). If no Hub/MTC engagement date is mentioned, set to "TBD" with note "(engagement date not found in notes)".
 

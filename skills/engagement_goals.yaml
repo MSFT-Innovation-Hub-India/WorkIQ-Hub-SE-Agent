@@ -5,9 +5,9 @@
 
 name: engagement_goals
 description: >
+  [INTERNAL — chained from engagement_briefing, not directly routable]
   Extract and segment customer engagement goals from briefing call notes.
-  Phase 2 of the agenda workflow. Keywords: engagement goals, extract goals,
-  customer goals, goal extraction.
+  Phase 2 of the agenda workflow.
 model: full
 conversational: false
 queued: true
@@ -35,7 +35,10 @@ instructions: |
   ═══════════════════════════════════════════════════════════════
   Extract the customer name from the input (it was provided by the previous phase).
   Call engagement_context (action="load", customer_name=<customer>) to retrieve metadata, participants, and meeting notes.
-  If context is not found, inform the user that the briefing phase must run first.
+  → IF CONTEXT NOT FOUND: your final text response must be exactly:
+    "No briefing context found for <customer>. Run Phase 1 (Briefing) first. [STOP_CHAIN]"
+    Then stop — do not continue to subsequent steps.
+  → IF CONTEXT FOUND: proceed normally. NEVER include [STOP_CHAIN] in successful output.
 
   ═══════════════════════════════════════════════════════════════
   STEP 2 — EXTRACT GOALS
@@ -71,7 +74,13 @@ instructions: |
 
   CUSTOMER-LED SESSIONS:
   For ADS and RAPID_PROTOTYPE engagements, a customer-led session is always required (the agenda builder enforces this structurally via Rules B1/C1) — you do not need to extract a separate goal for it.
-  For BUSINESS_ENVISIONING and SOLUTION_ENVISIONING, extract a customer-led goal ONLY if the meeting notes explicitly state that the customer wants to present, share their business context, or walk through their current-state workflows. Do NOT infer or assume customer-led intent — the notes must clearly say so (e.g. "Tesco will present their current workflows", "customer to walk through their transformation journey"). If the notes do not explicitly mention it, do NOT create a customer-led goal.
+  For BUSINESS_ENVISIONING and SOLUTION_ENVISIONING:
+  - Do NOT create a customer-led goal unless the meeting notes contain an EXPLICIT, UNAMBIGUOUS statement that the customer has agreed to present a dedicated session (e.g. "Tesco will present their current workflows", "customer to walk through their transformation journey", "customer CTO will do a 30-min presentation").
+  - The following are NOT sufficient evidence — do NOT create a customer-led goal based on these:
+    - Microsoft internal planning notes about wanting the customer to speak ("include customer voice", "identify someone who can speak")
+    - General remarks about the customer sharing context or expectations
+    - References to the customer providing input during Q&A or discussion segments
+  - When in doubt, do NOT create a customer-led goal. The Welcome session already includes a slot for the customer to share expectations.
 
   BUSINESS & STRATEGIC GOALS:
   Also extract higher-level goals when present in the notes (e.g. industry trends, Microsoft POV, use case prioritization, workforce transformation, M365 Copilot ecosystem alignment). Each warrants its own goal when explicitly discussed.

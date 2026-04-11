@@ -311,11 +311,16 @@ def _build_router_prompt() -> str:
         "Classify into one of these categories:",
         "",
     ]
-    for i, skill in enumerate(_skills.values(), 1):
-        lines.append(f'{i}. "{skill.name}" — {skill.description}')
+    routable_skills = []
+    for skill in _skills.values():
+        # Skip internal chained skills — they are not user-facing entry points
+        if "[INTERNAL" in skill.description.upper():
+            continue
+        routable_skills.append(skill)
+        lines.append(f'{len(routable_skills)}. "{skill.name}" — {skill.description}')
         lines.append("")
 
-    skill_names = [f'"{s}"' for s in _skills]
+    skill_names = [f'"{s.name}"' for s in routable_skills]
     examples = " or ".join(f'{{"skill": {n}}}' for n in skill_names)
     lines.append(f"Respond with ONLY a JSON object, no other text:")
     lines.append(examples)
@@ -479,7 +484,8 @@ def _run_skill(skill: Skill, user_input: str, on_progress=None) -> str:
             _conversation_histories[skill.name] = history[-20:]
 
     # Autonomous skill chaining — run next_skill if configured
-    if skill.next_skill:
+    # Skills can emit [STOP_CHAIN] in their final text to prevent chaining
+    if skill.next_skill and "[STOP_CHAIN]" not in (final_text or ""):
         next_skill_obj = _skills.get(skill.next_skill)
         if next_skill_obj:
             logger.info("[%s] Chaining to: %s", skill.name, skill.next_skill)

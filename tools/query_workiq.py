@@ -11,6 +11,28 @@ logger = logging.getLogger("hub_se_agent")
 
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
+# Unicode chars that cause mojibake when passed through CLI on Windows
+_UNICODE_REPLACEMENTS = {
+    "\u2014": "--",     # em dash —
+    "\u2013": "-",      # en dash –
+    "\u201c": '"',      # left double quote "
+    "\u201d": '"',      # right double quote "
+    "\u2018": "'",      # left single quote '
+    "\u2019": "'",      # right single quote '
+    "\u2192": "->",     # right arrow →
+    "\u2190": "<-",     # left arrow ←
+    "\u2026": "...",    # ellipsis …
+    "\u2022": "-",      # bullet •
+    "\u00b7": "-",      # middle dot ·
+}
+
+
+def _sanitize_for_cli(text: str) -> str:
+    """Replace Unicode characters that cause encoding issues on Windows CLI."""
+    for char, replacement in _UNICODE_REPLACEMENTS.items():
+        text = text.replace(char, replacement)
+    return text
+
 
 SCHEMA = {
     "type": "function",
@@ -45,6 +67,8 @@ def handle(arguments: dict, *, on_progress=None, workiq_cli=None, **kwargs) -> s
     logger.info("[WorkIQ] Querying: %s", question[:200])
     if on_progress:
         on_progress("tool", f"Querying WorkIQ: {question[:200]}")
+    # Sanitize Unicode chars that cause mojibake on Windows CLI
+    question = _sanitize_for_cli(question)
     try:
         # Windows command line limit is ~8191 chars. For long questions,
         # pipe via stdin in interactive mode instead of using -q argument.

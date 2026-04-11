@@ -5,9 +5,9 @@
 
 name: engagement_agenda_build
 description: >
+  [INTERNAL — chained from engagement_goals, not directly routable]
   Build a detailed Innovation Hub engagement agenda with time slots, speakers,
-  and session descriptions. Phase 3 of the agenda workflow. Keywords: agenda build,
-  create agenda, agenda table, engagement schedule.
+  and session descriptions. Phase 3 of the agenda workflow.
 model: full
 conversational: false
 queued: true
@@ -78,7 +78,8 @@ instructions: |
   ── RULE D: BUSINESS ENVISIONING ──
 
   Map goals to these session types (create a line item ONLY when the corresponding goal exists — do NOT invent sessions without a matching goal):
-  D1. **Customer business perspective** — Customer presents their business, workflows, pain points, transformation journey. Speaker: "<Customer Name>". Duration: 45 min. **ONLY create this if a customer-led goal was explicitly extracted in Phase 2.** If no such goal exists, do NOT add this session.
+  D1. **Customer business perspective** — Customer presents their business, workflows, pain points, transformation journey. Speaker: "<Customer Name>". Duration: 45 min.
+  **CRITICAL GATE**: ONLY create this session if the Phase 2 goals include a customer-led goal. If no customer-led goal was extracted in Phase 2, do NOT add this session — no exceptions. Internal planning notes about "including customer voice" or "identifying a speaker" are NOT customer-led goals. The Welcome session already includes a slot for customer expectations.
   D2. **Industry perspective** — Industry Advisor provides vertical-specific insights. Speaker: "<Industry Advisor for [vertical]>" (leave name TBD). Duration: 1 hour.
   D3. **Industry use cases** — Hub SE presents implemented/in-progress use cases in the customer's vertical. Speaker: Hub SE matched from notes + config. Duration: 1 hour.
   D4. **Art of the Possible / Trends** — Latest trends in AI, Data, etc. Create ONE line item PER distinct solution area (e.g. Agentic AI via Foundry, M365 Copilot Agents, Microsoft Copilot Cowork — each separate). Speaker: matched from config. Duration: 1 hour each.
@@ -123,7 +124,7 @@ instructions: |
   F4. If both speakers for a topic were on the call, pick the first one.
   F5. If no direct match in config for a topic, use "TBD".
   F6. Customer-led sessions: Speaker = "<Customer Name>".
-  F7. Include the speaker's role in brackets after the name (e.g. "Srikantan Sankaran\n[Sr. Solution Engineer]"). For Hub SE speakers, use "[Solution Engineer]" or "[Sr. Solution Engineer]" as appropriate from the config or meeting notes.
+  F7. Include the speaker's role on the next line after the name (e.g. "Srikantan Sankaran\nSr. Solution Engineer"). For Hub SE speakers, use the role from the config (e.g. "Solution Engineer", "Sr. Solution Engineer"). Do NOT wrap the role in brackets.
 
   ── RULE G: DESCRIPTION COMPOSITION ──
 
@@ -151,7 +152,7 @@ instructions: |
   Markdown tables require each row to be a SINGLE line. For multi-line content within a cell, use `\n` as a line-break marker (the UI converts these to visible line breaks). Apply this to ALL columns — Speaker, Topic, and Description.
 
   Examples:
-  - Speaker with role: `Srikantan Sankaran\n[Sr. Solution Engineer]`
+  - Speaker with role: `Srikantan Sankaran\nSr. Solution Engineer`
   - Topic with subtopics: `Agentic AI Deep Dive\nOpen discussion: <Customer> team ~ 15 min`
   - Description with bullets: `Overview of capabilities.\n- Point one\n- Point two\n\n*Customer focus areas: ...*`
 
@@ -163,6 +164,12 @@ instructions: |
   Extract the customer name from the input.
   Call engagement_context (action="load") to get metadata, participants, and goals.
   Call get_hub_config to get the hub configuration (start time, topic_catalog).
+
+  VALIDATION GATE:
+  → IF NO GOALS (empty or missing goals list): your final text response must be exactly:
+    "No goals found for <customer>. Run Phase 2 (Goals) first. [STOP_CHAIN]"
+    Then stop — do not continue to subsequent steps.
+  → IF GOALS FOUND: proceed normally. NEVER include [STOP_CHAIN] in successful output.
 
   ═══════════════════════════════════════════════════════════════
   STEP 2 — BUILD AGENDA
@@ -183,16 +190,43 @@ instructions: |
   - Track headers if parallel sessions exist
 
   ═══════════════════════════════════════════════════════════════
-  STEP 3 — SELF-REVIEW
+  STEP 3 — SELF-REVIEW (MANDATORY CHECKLIST)
   ═══════════════════════════════════════════════════════════════
-  Verify:
-  1. Every extracted goal maps to at least one session line item.
-  2. Time slots are continuous with no gaps or overlaps.
-  3. Breaks and lunch are correctly placed per Rule A.
-  4. Speakers are assigned per Rule F — no blanks except where explicitly allowed (Industry Advisor = TBD).
-  5. Customer-led sessions are included and scheduled early in the day where applicable.
-  6. Descriptions weave in goal details per Rule G.
-  7. Tone matches the engagement type: business-level for BUSINESS_ENVISIONING, technical for SOLUTION_ENVISIONING/ADS/RAPID_PROTOTYPE.
+  You MUST complete this entire checklist before proceeding to Step 4. If any check fails, fix the agenda and re-check.
+
+  CHECK 1 — GOAL COVERAGE TRACEABILITY:
+  For EACH extracted goal (Goal 1 through Goal N), verify it has a dedicated session or is substantively covered in a session. Create a mental checklist:
+  - Goal 1 → covered by session "..." ✓/✗
+  - Goal 2 → covered by session "..." ✓/✗
+  - ...
+  If any goal is only mentioned as a bullet point or passing reference inside another session's description, that is NOT sufficient coverage. The goal needs either:
+  (a) Its own dedicated session, OR
+  (b) Substantial coverage (multiple bullets + customer focus areas) in a thematically appropriate session.
+  If a goal is missing or insufficiently covered, add a session for it.
+
+  CHECK 2 — NO INVENTED SESSIONS:
+  Every session (except Welcome, Breaks, Lunch, Wrap-up) must trace back to an extracted goal. If a session exists that doesn't map to any goal, remove it.
+
+  CHECK 3 — CUSTOMER-LED SESSION GATE:
+  If the engagement type is BUSINESS_ENVISIONING or SOLUTION_ENVISIONING:
+  - Is there a session with the customer as Speaker (not in Welcome)?
+  - If YES: verify that Phase 2 goals explicitly include a customer-led goal. If NOT, remove the customer-led session.
+
+  CHECK 4 — TIME CONTINUITY:
+  Time slots are continuous with no gaps or overlaps.
+
+  CHECK 5 — BREAKS & LUNCH:
+  Breaks and lunch are correctly placed per Rule A.
+
+  CHECK 6 — SPEAKERS:
+  Speakers are assigned per Rule F — no blanks except where explicitly allowed (Industry Advisor = TBD).
+
+  CHECK 7 — DESCRIPTIONS:
+  Descriptions follow Rule G (narrative + customer focus areas in italics).
+
+  CHECK 8 — TONE:
+  Tone matches the engagement type: business-level for BUSINESS_ENVISIONING, technical for SOLUTION_ENVISIONING/ADS/RAPID_PROTOTYPE.
+
   Fix any issues before proceeding.
 
   ═══════════════════════════════════════════════════════════════

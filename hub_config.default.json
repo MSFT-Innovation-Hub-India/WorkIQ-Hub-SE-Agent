@@ -1,6 +1,8 @@
 {
   "hub_name": "Innovation Hub India",
   "default_session_start_time": "09:00 AM",
+  "agenda_output_folder": "C:\\Users\\sansri\\OneDrive - Microsoft\\hub-se-agent-agenda-docs",
+  "agenda_template_path": "C:\\Users\\sansri\\OneDrive - Microsoft\\Desktop\\Agenda-Document-Template.docx",
   "topic_catalog": [
     {
       "topic_category": "Art of the Possible with AI, Latest Trends in Agentic AI",

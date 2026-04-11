@@ -617,6 +617,14 @@
           <label>Default Session Start Time</label>
           <input type="time" id="cfgStartTime" value="09:00">
         </div>
+        <div class="config-section">
+          <label>Agenda Output Folder</label>
+          <input type="text" id="cfgOutputFolder" placeholder="e.g. C:\Users\you\OneDrive\agenda-docs">
+        </div>
+        <div class="config-section">
+          <label>Agenda Template Document</label>
+          <input type="text" id="cfgTemplatePath" placeholder="e.g. C:\Users\you\OneDrive\Agenda-Template.docx">
+        </div>
       </div>
 
       <div class="settings-tab-content" id="settingsTabCatalog">
@@ -1046,6 +1054,8 @@
   function populateSettings(config) {
     currentConfig = config || {};
     document.getElementById('cfgHubName').value = config.hub_name || '';
+    document.getElementById('cfgOutputFolder').value = config.agenda_output_folder || '';
+    document.getElementById('cfgTemplatePath').value = config.agenda_template_path || '';
     // Parse "09:00 AM" → "09:00" for the time input
     const raw = config.default_session_start_time || '09:00 AM';
     const m = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
@@ -1187,6 +1197,8 @@
     return Object.assign({}, currentConfig, {
       hub_name: document.getElementById('cfgHubName').value.trim(),
       default_session_start_time: startTime,
+      agenda_output_folder: document.getElementById('cfgOutputFolder').value.trim(),
+      agenda_template_path: document.getElementById('cfgTemplatePath').value.trim(),
       topic_catalog: topicCatalog,
     });
   }
