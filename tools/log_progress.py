@@ -33,6 +33,13 @@ SCHEMA = {
                     "decided in this step."
                 ),
             },
+            "milestone": {
+                "type": "boolean",
+                "description": (
+                    "If true, display as a prominent phase milestone "
+                    "banner (e.g. phase completion). Defaults to false."
+                ),
+            },
         },
         "required": ["step_title", "details"],
     },
@@ -43,6 +50,7 @@ def handle(arguments: dict, *, on_progress=None, **kwargs) -> str:
     """Log a formatted progress update."""
     step_title = arguments["step_title"]
     details = arguments["details"]
+    is_milestone = arguments.get("milestone", False)
     header = f"┌─ {step_title}"
     separator = "│"
     footer = f"└{'─' * 60}"
@@ -50,7 +58,10 @@ def handle(arguments: dict, *, on_progress=None, **kwargs) -> str:
     msg = f"{header}\n{separator}\n{body}\n{separator}\n{footer}"
     logger.info("\n%s\n", msg)
     if on_progress:
-        # Send the full markdown details to the UI, not just the title
-        full_content = f"**{step_title}**\n\n{details}"
-        on_progress("progress", full_content)
+        if is_milestone:
+            on_progress("milestone", step_title)
+        else:
+            # Send the full markdown details to the UI, not just the title
+            full_content = f"**{step_title}**\n\n{details}"
+            on_progress("progress", full_content)
     return "Logged."

@@ -74,8 +74,6 @@ def handle(arguments: dict, *, on_progress=None, **kwargs) -> str:
             json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         logger.info("[EngagementContext] Saved for %s (%d keys)", customer, len(existing))
-        if on_progress:
-            on_progress("tool", f"Context saved for {customer}")
         return f"Context saved. Keys: {list(existing.keys())}"
 
     elif action == "load":
@@ -87,8 +85,6 @@ def handle(arguments: dict, *, on_progress=None, **kwargs) -> str:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             logger.info("[EngagementContext] Loaded for %s (%d keys)", customer, len(data))
-            if on_progress:
-                on_progress("tool", f"Context loaded for {customer}")
             return json.dumps(data, indent=2, ensure_ascii=False)
         except Exception as e:
             return f"Error loading context: {e}"

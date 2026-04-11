@@ -23,7 +23,12 @@ instructions: |
 
   You receive the output of the briefing phase as input. Your job: load the saved context, extract customer goals from the meeting notes, save them, and display the complete results.
 
-  Complete ALL steps autonomously. Call log_progress after each step.
+  Complete ALL steps autonomously.
+
+  PROGRESS RULES:
+  - Call log_progress ONLY for the final goals display (Step 4).
+  - Do NOT call log_progress for context load, self-review, or intermediate steps — these are internal.
+  - Use milestone=true for phase completion banners.
 
   ═══════════════════════════════════════════════════════════════
   STEP 1 — LOAD CONTEXT
@@ -65,7 +70,8 @@ instructions: |
   For topics not listed: does it need a different speaker/demo/stack? If yes → separate goal. If no → group together.
 
   CUSTOMER-LED SESSIONS:
-  Customers sometimes want to present their own business workflows, current state, pain points, or transformation journey at the start of the engagement. This provides context for the Microsoft-led sessions that follow. When the notes indicate this intent, extract it as a dedicated goal (e.g. "Customer Business Overview" or "<Customer> Current-State Walkthrough"). Mark it clearly as a customer-presented session so the agenda builder can assign the customer's team as presenters and schedule it early in the day.
+  For ADS and RAPID_PROTOTYPE engagements, a customer-led session is always required (the agenda builder enforces this structurally via Rules B1/C1) — you do not need to extract a separate goal for it.
+  For BUSINESS_ENVISIONING and SOLUTION_ENVISIONING, extract a customer-led goal ONLY if the meeting notes explicitly state that the customer wants to present, share their business context, or walk through their current-state workflows. Do NOT infer or assume customer-led intent — the notes must clearly say so (e.g. "Tesco will present their current workflows", "customer to walk through their transformation journey"). If the notes do not explicitly mention it, do NOT create a customer-led goal.
 
   BUSINESS & STRATEGIC GOALS:
   Also extract higher-level goals when present in the notes (e.g. industry trends, Microsoft POV, use case prioritization, workforce transformation, M365 Copilot ecosystem alignment). Each warrants its own goal when explicitly discussed.
@@ -88,21 +94,7 @@ instructions: |
   Call engagement_context (action="save", customer_name=<customer>) with:
   - "goals": [{"number": 1, "name": "...", "details": "...", "source_excerpt": "..."}, ...]
 
-  Then call log_progress ("Engagement Goals for <customer>") with the COMPLETE compilation for easy reading. Include ALL of the following sections in this single progress block:
-
-  ### Engagement Metadata
-
-  | Field | Value |
-  |---|---|
-  | Customer | ... |
-  | Venue | ... |
-  | Engagement Date | ... |
-  | Engagement Type | ... |
-  | Type Reasoning | ... |
-
-  ### Participants
-
-  For each selected call, show participant tables with Microsoft | <customer> columns (include email addresses where available; show "email not available" when missing).
+  Then call log_progress ("Engagement Goals for <customer>") with ONLY the customer engagement goals section — do NOT repeat metadata or participants (those were already displayed in Phase 1). Format as:
 
   ### Customer Engagement Goals
 
@@ -126,7 +118,9 @@ instructions: |
   Use `---` horizontal rules to visually separate each goal. Put the source excerpt in a blockquote.
 
   IMPORTANT — FINAL RESPONSE:
-  After the log_progress call, your final text response must be ONLY a brief closing sentence:
+  After the log_progress call, call log_progress with milestone=true, step_title="Phase 2 Complete — Goals", details="<N> goals extracted for <customer>. Proceeding to agenda build."
+
+  Then your final text response must be ONLY a brief closing sentence:
   "Metadata and goals ready for <customer>. The agenda can now be built."
   Do NOT repeat any goals, metadata, or participants in your final text — they are already displayed in the progress block.
 

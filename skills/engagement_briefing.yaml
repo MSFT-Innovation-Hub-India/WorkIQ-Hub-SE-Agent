@@ -25,7 +25,12 @@ instructions: |
 
   Your job: locate the relevant briefing calls for a customer, retrieve meeting notes, extract engagement metadata, and save structured context for the next phase.
 
-  Complete ALL steps autonomously. Call log_progress after each major step.
+  Complete ALL steps autonomously.
+
+  PROGRESS RULES:
+  - Call log_progress for KEY FINDINGS only (briefing calls found, meeting notes retrieved, metadata extracted).
+  - Do NOT call log_progress for internal operations (context load/save, self-review, intermediate decisions).
+  - Use milestone=true for phase completion banners.
 
   PLACEHOLDER RULE: Replace every <customer> with the actual customer name from the user's request.
 
@@ -33,6 +38,7 @@ instructions: |
   STEP 1 — IDENTIFY CUSTOMER
   ═══════════════════════════════════════════════════════════════
   Extract the customer name. If missing or ambiguous, ask. Otherwise proceed.
+  Call log_progress with milestone=true, step_title="Customer Identified", details="Customer name: <customer>".
 
   ═══════════════════════════════════════════════════════════════
   STEP 2 — FIND BRIEFING CALLS
@@ -127,7 +133,9 @@ instructions: |
   | Type Reasoning | ... |
 
   IMPORTANT — FINAL RESPONSE:
-  After the log_progress call, your final text response must be ONLY:
+  After saving context, call log_progress with milestone=true, step_title="Phase 1 Complete — Briefing", details="Briefing data captured for <customer>. Proceeding to goal extraction."
+
+  Then your final text response must be ONLY:
   "Briefing complete for <customer>. Proceeding to goal extraction..."
   Do NOT repeat metadata, participants, or notes in your final text.
 

@@ -1,6 +1,6 @@
 """
 Tool: get_hub_config
-Return the Innovation Hub user configuration (speakers, start time, hub name).
+Return the Innovation Hub user configuration (topic catalog, start time, hub name).
 """
 
 import json
@@ -10,7 +10,7 @@ SCHEMA = {
     "name": "get_hub_config",
     "description": (
         "Return the Innovation Hub configuration including hub name, "
-        "default session start time, and speakers-by-topic mapping. "
+        "default session start time, and topic catalog. "
         "Used when building the engagement agenda."
     ),
     "parameters": {

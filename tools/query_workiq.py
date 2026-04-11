@@ -55,6 +55,7 @@ def handle(arguments: dict, *, on_progress=None, workiq_cli=None, **kwargs) -> s
                 input=question + "\n",
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=180,
                 creationflags=_NO_WINDOW,
             )
@@ -63,6 +64,7 @@ def handle(arguments: dict, *, on_progress=None, workiq_cli=None, **kwargs) -> s
                 [workiq_cli, "ask", "-q", question],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=120,
                 creationflags=_NO_WINDOW,
             )

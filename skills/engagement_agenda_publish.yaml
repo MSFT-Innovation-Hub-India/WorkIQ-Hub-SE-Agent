@@ -1,13 +1,13 @@
 # Skill: Engagement Agenda Publish
 # Phase 4 of the engagement agenda workflow.
-# Creates a Microsoft Word document from the agenda and uploads to OneDrive.
+# Creates a Microsoft Word document from the agenda markdown.
 # Chained from engagement_agenda_build automatically.
 
 name: engagement_agenda_publish
 description: >
-  Create a Microsoft Word document from the engagement agenda and save to
-  OneDrive. Phase 4 of the agenda workflow. Keywords: agenda publish, word doc,
-  create document, agenda document, onedrive.
+  Create a Microsoft Word document from the engagement agenda.
+  Phase 4 of the agenda workflow. Keywords: agenda publish, word doc,
+  create document, agenda document.
 model: full
 conversational: false
 queued: true
@@ -23,7 +23,12 @@ instructions: |
 
   You receive the agenda-build output as input. Your job: load the saved agenda content, ask WorkIQ to create a Word document with it, and confirm the result.
 
-  Complete ALL steps autonomously. Call log_progress after each step.
+  Complete ALL steps autonomously.
+
+  PROGRESS RULES:
+  - Call log_progress ONLY for document creation status and the final result.
+  - Do NOT call log_progress for context load, document name determination, or other internal steps.
+  - Use milestone=true for phase completion banners.
 
   ═══════════════════════════════════════════════════════════════
   STEP 1 — LOAD CONTEXT
@@ -34,6 +39,8 @@ instructions: |
   - agenda_markdown (the full agenda table from Phase 3)
 
   If agenda_markdown is missing, inform the user that Phase 3 must run first and stop.
+
+  Do NOT call log_progress for this step — context loading is internal.
 
   ═══════════════════════════════════════════════════════════════
   STEP 2 — DETERMINE DOCUMENT NAME
@@ -46,16 +53,25 @@ instructions: |
   - <Month-Year>: derive from the engagement date in the metadata. If the engagement date is "TBD", use the current month and year instead.
   - Example: Agenda-Diebold-Nixdorf-January-2026.docx
 
+  Do NOT call log_progress for this step — document naming is internal.
+
   ═══════════════════════════════════════════════════════════════
   STEP 3 — CREATE WORD DOCUMENT
   ═══════════════════════════════════════════════════════════════
-  Call query_workiq with a single, comprehensive request to create the Word document. Structure the query as follows:
+  Call query_workiq with a single, comprehensive request to create the Word document. Structure the query EXACTLY as shown below — the capitalized warnings are critical to prevent WorkIQ from summarizing the content:
 
-  "Create a new Microsoft Word document named '<filename>' and save it to my OneDrive. The document should contain the following content, formatted as a professional agenda document with proper headings, a table layout, and clean formatting:
+  "Create a new Microsoft Word document named '<filename>'.
+
+  CRITICAL INSTRUCTION: Every cell in the table below — especially the Description column — must be reproduced VERBATIM, word-for-word, in full. Do NOT summarize, shorten, paraphrase, or truncate any cell. The Description column contains multiple paragraphs and bullet points per row — ALL of them must appear in the document exactly as written below. If a description cell has 5 paragraphs, the Word document must have all 5 paragraphs in that cell.
+
+  Format as a professional agenda document with proper headings and a table layout. Here is the complete content:
 
   <paste the full agenda_markdown content here>"
 
-  Include the COMPLETE agenda_markdown in the query — do not truncate or summarize.
+  IMPORTANT RULES FOR YOU (the agent):
+  - Do NOT mention OneDrive, upload, save to cloud, or any file storage location in the query.
+  - Include the COMPLETE agenda_markdown in the query — do not truncate or summarize.
+  - Do NOT reformat, simplify, or reduce the agenda content before sending it to WorkIQ.
 
   Call log_progress ("Creating Word Document") indicating the filename and that the request has been sent to WorkIQ.
 
@@ -64,19 +80,28 @@ instructions: |
   ═══════════════════════════════════════════════════════════════
   Examine the WorkIQ response:
 
-  SUCCESS CASE: If WorkIQ confirms the document was created and returns a URL or link, call log_progress ("Document Created") with:
+  SUCCESS CASE: If WorkIQ confirms the document was created and/or returns a URL or link:
+  Call log_progress ("Document Created") with:
   - Document name
-  - Location (OneDrive path if provided)
-  - The document link in EXACTLY this markdown format (the UI renders it as a clickable card):
+  - If a URL was returned, show the document link in EXACTLY this markdown format (the UI renders it as a clickable card):
     [📄 <filename>](<document_url>)
-  If WorkIQ returns a URL, use it. If WorkIQ does not return a URL but confirms creation, still show the filename without a link.
+  - If no URL was returned but WorkIQ confirms creation, show the filename without a link.
 
-  FAILURE CASE: If WorkIQ returns an error or indicates it cannot create the document, call log_progress ("Document Creation Failed") with the error details and suggest the user try manually.
+  FAILURE CASE — RETRY ONCE: If WorkIQ returns an error or says it cannot create the document:
+  1. Call log_progress ("Retrying Document Creation") explaining the first attempt did not succeed and retrying with a simpler request.
+  2. Call query_workiq again with a simpler prompt:
+     "Create a Microsoft Word document called '<filename>' with this content:
+
+     <paste the full agenda_markdown content here>"
+  3. Examine the second response. If it succeeds, proceed to the success path above.
+  4. If the second attempt also fails, call log_progress ("Document Creation Failed") with the error details.
 
   ═══════════════════════════════════════════════════════════════
   FINAL RESPONSE
   ═══════════════════════════════════════════════════════════════
-  After the log_progress call, your final text response must be ONLY:
+  After the log_progress call, call log_progress with milestone=true, step_title="Phase 4 Complete — Published", details="Agenda document created for <customer>."
+
+  Then your final text response must be ONLY:
   - On success: "Agenda document '<filename>' created for <customer>."
   - On failure: "Could not create the Word document. See the error details above."
   Do NOT repeat the agenda content in your final text.
@@ -86,4 +111,5 @@ instructions: |
   ═══════════════════════════════════════════════════════════════
   - Replace <customer> with the actual customer name everywhere.
   - Do NOT modify or re-generate the agenda — use exactly what Phase 3 produced.
+  - Do NOT mention OneDrive, upload, or cloud storage in any query_workiq call.
   - Use markdown formatting in all log_progress calls.

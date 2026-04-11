@@ -147,6 +147,17 @@
   .step-icon.done { background: #DFF6DD; color: var(--success); }
   .step-icon.error { background: #FDE7E9; color: var(--error); }
 
+  /* Milestone banner */
+  .milestone-step {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 12px; margin: 8px 0;
+    background: linear-gradient(135deg, #DFF6DD 0%, #E8F8E5 100%);
+    border-left: 3px solid #107C10;
+    border-radius: 4px;
+    font-size: 13px; font-weight: 600; color: #107C10;
+  }
+  .milestone-step .milestone-icon { font-size: 14px; }
+
   /* Agent badge */
   .agent-badge {
     display: inline-flex; align-items: center; gap: 5px;
@@ -356,6 +367,10 @@
     box-shadow: 0 8px 32px rgba(0,0,0,0.2);
     display: flex; flex-direction: column;
     overflow: hidden;
+    transition: width 0.2s ease;
+  }
+  .modal.wide {
+    width: 780px;
   }
   .modal-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -391,6 +406,31 @@
 
   /* Config form */
   .config-section { margin-bottom: 16px; }
+  .settings-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+  }
+  .settings-tab-btn {
+    border: 1px solid var(--border);
+    background: #f7f7f7;
+    color: var(--text-secondary);
+    border-radius: 999px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .settings-tab-btn.active {
+    background: var(--accent-light);
+    color: var(--accent);
+    border-color: #bddfff;
+  }
+  .settings-tab-content { display: none; }
+  .settings-tab-content.active { display: block; }
   .config-section label {
     display: block; font-size: 12px; font-weight: 600;
     margin-bottom: 4px; color: var(--text);
@@ -403,24 +443,6 @@
   }
   .config-section input:focus { border-color: var(--accent); }
 
-  .speaker-table {
-    width: 100%; border-collapse: collapse; font-size: 12px;
-    margin-top: 4px;
-  }
-  .speaker-table th {
-    text-align: left; padding: 6px 8px; background: #f5f5f5;
-    font-weight: 600; border-bottom: 1px solid var(--border);
-  }
-  .speaker-table td {
-    padding: 4px 8px; border-bottom: 1px solid #f0f0f0;
-    vertical-align: middle;
-  }
-  .speaker-table input {
-    width: 100%; padding: 4px 6px; border: 1px solid var(--border);
-    border-radius: 4px; font-size: 12px; font-family: inherit;
-    outline: none; background: transparent;
-  }
-  .speaker-table input:focus { border-color: var(--accent); background: white; }
   .speaker-table .row-actions {
     width: 30px; text-align: center;
   }
@@ -437,6 +459,71 @@
     margin-top: 6px; transition: all 0.15s;
   }
   .add-row-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .topic-catalog-help {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+  }
+  .tc-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.15s;
+  }
+  .tc-card:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .tc-card-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; cursor: pointer;
+    background: #fafafa; user-select: none;
+  }
+  .tc-card-header:hover { background: #f0f4ff; }
+  .tc-card-chevron {
+    font-size: 10px; color: var(--text-secondary);
+    transition: transform 0.15s; flex-shrink: 0;
+  }
+  .tc-card.open .tc-card-chevron { transform: rotate(90deg); }
+  .tc-card-title {
+    flex: 1; font-size: 12px; font-weight: 600;
+    color: var(--text); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tc-card-subtitle {
+    font-size: 11px; color: var(--text-secondary);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 180px;
+  }
+  .tc-card-remove {
+    background: none; border: none; color: var(--error);
+    cursor: pointer; font-size: 13px; padding: 2px 6px;
+    border-radius: 4px; flex-shrink: 0;
+  }
+  .tc-card-remove:hover { background: #FDE7E9; }
+  .tc-card-body {
+    display: none; padding: 10px 14px;
+    border-top: 1px solid var(--border);
+  }
+  .tc-card.open .tc-card-body { display: block; }
+  .tc-field { margin-bottom: 10px; }
+  .tc-field:last-child { margin-bottom: 0; }
+  .tc-field label {
+    display: block; font-size: 11px; font-weight: 600;
+    color: var(--text-secondary); margin-bottom: 3px;
+  }
+  .tc-field input, .tc-field textarea {
+    width: 100%; padding: 6px 8px;
+    border: 1px solid var(--border); border-radius: 5px;
+    font-size: 12px; font-family: inherit;
+    outline: none; background: white;
+    box-sizing: border-box;
+  }
+  .tc-field textarea { resize: vertical; min-height: 70px; }
+  .tc-field input:focus, .tc-field textarea:focus {
+    border-color: var(--accent);
+  }
+  .tc-field-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
 
   /* Document link card */
   .doc-card {
@@ -516,21 +603,28 @@
       <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="config-section">
-        <label>Innovation Hub Name</label>
-        <input type="text" id="cfgHubName" placeholder="e.g. Innovation Hub India">
+      <div class="settings-tabs">
+        <button class="settings-tab-btn active" id="settingsTabGeneralBtn" onclick="setSettingsTab('general')">General</button>
+        <button class="settings-tab-btn" id="settingsTabCatalogBtn" onclick="setSettingsTab('catalog')">Topic Catalog</button>
       </div>
-      <div class="config-section">
-        <label>Default Session Start Time</label>
-        <input type="time" id="cfgStartTime" value="09:00">
+
+      <div class="settings-tab-content active" id="settingsTabGeneral">
+        <div class="config-section">
+          <label>Innovation Hub Name</label>
+          <input type="text" id="cfgHubName" placeholder="e.g. Innovation Hub India">
+        </div>
+        <div class="config-section">
+          <label>Default Session Start Time</label>
+          <input type="time" id="cfgStartTime" value="09:00">
+        </div>
       </div>
-      <div class="config-section">
-        <label>Speakers by Topic</label>
-        <table class="speaker-table" id="speakerTable">
-          <thead><tr><th>Topic</th><th>Speaker 1</th><th>Speaker 2</th><th class="row-actions"></th></tr></thead>
-          <tbody id="speakerBody"></tbody>
-        </table>
-        <button class="add-row-btn" onclick="addSpeakerRow()">+ Add topic</button>
+
+      <div class="settings-tab-content" id="settingsTabCatalog">
+        <div class="topic-catalog-help">
+          Add or edit agenda topic templates. Click a row to expand and edit details. Speakers: one per line as Name | Role.
+        </div>
+        <div id="topicCatalogBody"></div>
+        <button class="add-row-btn" onclick="addTopicCatalogRow()">+ Add catalog item</button>
       </div>
     </div>
     <div class="modal-footer">
@@ -554,6 +648,7 @@
   let activeBubbles = new Map();  // request_id → agent bubble element
   let lastBubble = null;          // fallback for legacy messages without request_id
   let reconnectTimer = null;
+  let currentConfig = {};
 
   // ---- WebSocket connection ----
   function connect() {
@@ -652,6 +747,8 @@
         markLastStepDone(bubble);
         if (msg.kind === 'agent') {
           addAgentBadge(bubble, msg.message);
+        } else if (msg.kind === 'milestone') {
+          addMilestone(bubble, msg.message);
         } else if (msg.kind === 'progress') {
           addProgressBlock(bubble, msg.message);
         } else {
@@ -809,6 +906,15 @@
     scrollToBottom();
   }
 
+  function addMilestone(msgDiv, text) {
+    const bubble = msgDiv.querySelector('.bubble');
+    const ms = document.createElement('div');
+    ms.className = 'milestone-step';
+    ms.innerHTML = `<span class="milestone-icon">✅</span><span>${escapeHtml(text)}</span>`;
+    bubble.appendChild(ms);
+    scrollToBottom();
+  }
+
   function markLastStepDone(msgDiv, isError) {
     const steps = msgDiv.querySelectorAll('.progress-step');
     if (steps.length > 0) {
@@ -928,6 +1034,7 @@
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'get_config' }));
     }
+    setSettingsTab('general');
     document.getElementById('settingsModal').classList.add('open');
     document.getElementById('saveStatus').textContent = '';
   }
@@ -937,6 +1044,7 @@
   }
 
   function populateSettings(config) {
+    currentConfig = config || {};
     document.getElementById('cfgHubName').value = config.hub_name || '';
     // Parse "09:00 AM" → "09:00" for the time input
     const raw = config.default_session_start_time || '09:00 AM';
@@ -948,27 +1056,106 @@
       document.getElementById('cfgStartTime').value =
         String(h).padStart(2, '0') + ':' + m[2];
     }
-    // Speakers
-    const body = document.getElementById('speakerBody');
-    body.innerHTML = '';
-    (config.speakers_by_topic || []).forEach(item => {
-      addSpeakerRow(item.topic, item.speakers?.[0] || '', item.speakers?.[1] || '');
-    });
+
+    const catalogBody = document.getElementById('topicCatalogBody');
+    catalogBody.innerHTML = '';
+    const topicCatalog = Array.isArray(config.topic_catalog) ? config.topic_catalog : [];
+    topicCatalog.forEach(item => addTopicCatalogRow(item));
   }
 
-  function addSpeakerRow(topic, s1, s2) {
-    const body = document.getElementById('speakerBody');
-    const tr = document.createElement('tr');
-    tr.innerHTML =
-      `<td><input type="text" value="${escapeAttr(topic || '')}" placeholder="Topic name"></td>` +
-      `<td><input type="text" value="${escapeAttr(s1 || '')}" placeholder="Speaker 1"></td>` +
-      `<td><input type="text" value="${escapeAttr(s2 || '')}" placeholder="Speaker 2 (optional)"></td>` +
-      `<td class="row-actions"><button class="remove-row" onclick="this.closest('tr').remove()" title="Remove">✕</button></td>`;
-    body.appendChild(tr);
+  function setSettingsTab(tabName) {
+    const generalBtn = document.getElementById('settingsTabGeneralBtn');
+    const catalogBtn = document.getElementById('settingsTabCatalogBtn');
+    const generalTab = document.getElementById('settingsTabGeneral');
+    const catalogTab = document.getElementById('settingsTabCatalog');
+    const modal = document.querySelector('#settingsModal .modal');
+
+    const showGeneral = tabName === 'general';
+    generalBtn.classList.toggle('active', showGeneral);
+    catalogBtn.classList.toggle('active', !showGeneral);
+    generalTab.classList.toggle('active', showGeneral);
+    catalogTab.classList.toggle('active', !showGeneral);
+    modal.classList.toggle('wide', !showGeneral);
   }
 
-  function escapeAttr(s) {
-    return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  function speakersToText(speakers) {
+    if (!Array.isArray(speakers)) return '';
+    return speakers
+      .map(s => {
+        if (!s || typeof s !== 'object') return '';
+        const name = (s.name || '').trim();
+        const role = (s.role || '').trim();
+        if (!name && !role) return '';
+        return role ? `${name} | ${role}` : name;
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  function textToSpeakers(text) {
+    return String(text || '')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+      .map(line => {
+        const parts = line.split('|').map(p => p.trim());
+        const name = parts[0] || '';
+        const role = parts.slice(1).join(' | ');
+        return { name, role };
+      })
+      .filter(s => s.name || s.role);
+  }
+
+  function addTopicCatalogRow(entry) {
+    const body = document.getElementById('topicCatalogBody');
+    const card = document.createElement('div');
+    card.className = 'tc-card';
+
+    const category = entry && entry.topic_category ? entry.topic_category : '';
+    const topic = entry && entry.topic ? entry.topic : '';
+    const description = entry && entry.description ? entry.description : '';
+    const speakersText = entry ? speakersToText(entry.speakers) : '';
+    const isNew = !entry;
+
+    const headerTitle = topic || category || 'New topic';
+    const headerSub = category && topic ? category : '';
+
+    card.innerHTML =
+      `<div class="tc-card-header">` +
+        `<span class="tc-card-chevron">▶</span>` +
+        `<span class="tc-card-title">${escapeHtml(headerTitle)}</span>` +
+        (headerSub ? `<span class="tc-card-subtitle">${escapeHtml(headerSub)}</span>` : '') +
+        `<button class="tc-card-remove" title="Remove" onclick="event.stopPropagation();this.closest('.tc-card').remove()">✕</button>` +
+      `</div>` +
+      `<div class="tc-card-body">` +
+        `<div class="tc-field-row">` +
+          `<div class="tc-field"><label>Category</label><input type="text" class="tc-category" placeholder="e.g. Data and Analytics" value="${escapeHtml(category)}"></div>` +
+          `<div class="tc-field"><label>Topic</label><input type="text" class="tc-topic" placeholder="e.g. Fabric IQ + OneLake" value="${escapeHtml(topic)}"></div>` +
+        `</div>` +
+        `<div class="tc-field"><label>Default Speakers</label><textarea rows="2" class="tc-speakers" placeholder="Name | Role (one per line)">${escapeHtml(speakersText)}</textarea></div>` +
+        `<div class="tc-field"><label>Description</label><textarea rows="4" class="tc-description" placeholder="Session description template">${escapeHtml(description)}</textarea></div>` +
+      `</div>`;
+
+    // Click header to toggle expand
+    const header = card.querySelector('.tc-card-header');
+    header.addEventListener('click', () => card.classList.toggle('open'));
+
+    // Update header title when fields change
+    const topicInput = card.querySelector('.tc-topic');
+    const catInput = card.querySelector('.tc-category');
+    const updateTitle = () => {
+      const t = topicInput.value.trim() || catInput.value.trim() || 'New topic';
+      card.querySelector('.tc-card-title').textContent = t;
+      const sub = card.querySelector('.tc-card-subtitle');
+      if (sub) sub.textContent = catInput.value.trim() && topicInput.value.trim() ? catInput.value.trim() : '';
+    };
+    topicInput.addEventListener('input', updateTitle);
+    catInput.addEventListener('input', updateTitle);
+
+    body.appendChild(card);
+
+    // Auto-expand new items
+    if (isNew) card.classList.add('open');
   }
 
   function collectSettings() {
@@ -981,21 +1168,27 @@
     if (h === 0) h = 12;
     const startTime = String(h).padStart(2, '0') + ':' + mm + ' ' + ampm;
 
-    const rows = document.querySelectorAll('#speakerBody tr');
-    const speakers = [];
-    rows.forEach(tr => {
-      const inputs = tr.querySelectorAll('input');
-      const topic = inputs[0].value.trim();
-      if (!topic) return;
-      const spkrs = [inputs[1].value.trim(), inputs[2].value.trim()].filter(Boolean);
-      speakers.push({ topic, speakers: spkrs });
+    const catalogCards = document.querySelectorAll('#topicCatalogBody .tc-card');
+    const topicCatalog = [];
+    catalogCards.forEach(card => {
+      const category = card.querySelector('.tc-category')?.value.trim() || '';
+      const topic = card.querySelector('.tc-topic')?.value.trim() || '';
+      const speakersValue = card.querySelector('.tc-speakers')?.value || '';
+      const description = card.querySelector('.tc-description')?.value.trim() || '';
+      if (!category && !topic && !speakersValue.trim() && !description) return;
+      topicCatalog.push({
+        topic_category: category,
+        topic,
+        speakers: textToSpeakers(speakersValue),
+        description,
+      });
     });
 
-    return {
+    return Object.assign({}, currentConfig, {
       hub_name: document.getElementById('cfgHubName').value.trim(),
       default_session_start_time: startTime,
-      speakers_by_topic: speakers,
-    };
+      topic_catalog: topicCatalog,
+    });
   }
 
   function saveSettings() {

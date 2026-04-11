@@ -24,7 +24,12 @@ instructions: |
 
   You receive the goal-extraction output as input. Your job: load saved context and hub config, build a detailed agenda markdown table with time slots, speakers, and descriptions, then save and display it.
 
-  Complete ALL steps autonomously. Call log_progress after each step.
+  Complete ALL steps autonomously.
+
+  PROGRESS RULES:
+  - Call log_progress ONLY for the final agenda display (Step 4).
+  - Do NOT call log_progress for context/config load, self-review, or intermediate design decisions — these are internal.
+  - Use milestone=true for phase completion banners.
 
   ═══════════════════════════════════════════════════════════════
   REFERENCE RULES — read these before starting the steps
@@ -72,8 +77,8 @@ instructions: |
 
   ── RULE D: BUSINESS ENVISIONING ──
 
-  Map goals to these session types (create a line item ONLY when the corresponding goal exists):
-  D1. **Customer business perspective** — Customer presents their business, workflows, pain points, transformation journey. Speaker: "<Customer Name>". Duration: 45 min.
+  Map goals to these session types (create a line item ONLY when the corresponding goal exists — do NOT invent sessions without a matching goal):
+  D1. **Customer business perspective** — Customer presents their business, workflows, pain points, transformation journey. Speaker: "<Customer Name>". Duration: 45 min. **ONLY create this if a customer-led goal was explicitly extracted in Phase 2.** If no such goal exists, do NOT add this session.
   D2. **Industry perspective** — Industry Advisor provides vertical-specific insights. Speaker: "<Industry Advisor for [vertical]>" (leave name TBD). Duration: 1 hour.
   D3. **Industry use cases** — Hub SE presents implemented/in-progress use cases in the customer's vertical. Speaker: Hub SE matched from notes + config. Duration: 1 hour.
   D4. **Art of the Possible / Trends** — Latest trends in AI, Data, etc. Create ONE line item PER distinct solution area (e.g. Agentic AI via Foundry, M365 Copilot Agents, Microsoft Copilot Cowork — each separate). Speaker: matched from config. Duration: 1 hour each.
@@ -111,8 +116,9 @@ instructions: |
 
   ── RULE F: SPEAKER ASSIGNMENT ──
 
-  F1. Load `speakers_by_topic` from hub config.
-  F2. Match each session's technology area to a topic in the config.
+  F0. Use `topic_catalog` from hub config as the primary reference for speaker candidates and canonical topic/description phrasing.
+  F1. Match each session's technology area to an entry in `topic_catalog`.
+  F2. If a backward-compatibility `speakers_by_topic` mapping is present, it may be used only as a fallback when a suitable catalog match is not found.
   F3. Prefer speakers who were on the briefing call (check participants from context).
   F4. If both speakers for a topic were on the call, pick the first one.
   F5. If no direct match in config for a topic, use "TBD".
@@ -122,6 +128,7 @@ instructions: |
   ── RULE G: DESCRIPTION COMPOSITION ──
 
   G1. TOPIC COLUMN: Write a compelling, specific topic name — not generic. The topic column can contain multiple subtopics separated by line breaks. If the session includes an open discussion with the customer, add it as a subtopic with allocated time (e.g. "Open discussion: <Customer> team to share their experiences ~ 15 minutes").
+  If `topic_catalog` has a matching entry, prefer its `topic` as the baseline title and adapt only as needed for flow and timing.
 
   G2. DESCRIPTION COLUMN — TWO PARTS, in this order:
 
@@ -137,6 +144,7 @@ instructions: |
   *Customer focus areas: <key points from the extracted goal relevant to this session>*
 
   IMPORTANT: Part 1 must be substantive and specific to the solution area — it is the primary content of the description. Part 2 is supplementary context from the goal. Do NOT skip Part 1 and only show Part 2.
+  If `topic_catalog` has a matching entry, use its `description` as the baseline for Part 1, then tailor to the customer goals and engagement type.
 
   ── RULE H: TABLE FORMATTING ──
 
@@ -154,7 +162,7 @@ instructions: |
   ═══════════════════════════════════════════════════════════════
   Extract the customer name from the input.
   Call engagement_context (action="load") to get metadata, participants, and goals.
-  Call get_hub_config to get the hub configuration (start time, speakers_by_topic).
+  Call get_hub_config to get the hub configuration (start time, topic_catalog).
 
   ═══════════════════════════════════════════════════════════════
   STEP 2 — BUILD AGENDA
@@ -196,7 +204,9 @@ instructions: |
   Then call log_progress ("Engagement Agenda for <customer>") with the complete agenda for display.
 
   IMPORTANT — FINAL RESPONSE:
-  After the log_progress call, your final text response must be ONLY:
+  After the log_progress call, call log_progress with milestone=true, step_title="Phase 3 Complete — Agenda", details="Engagement agenda built for <customer>. Proceeding to document creation."
+
+  Then your final text response must be ONLY:
   "Phase 3 complete — engagement agenda built for <customer>."
   Do NOT repeat the agenda in your final text — it is already displayed in the progress block.
 

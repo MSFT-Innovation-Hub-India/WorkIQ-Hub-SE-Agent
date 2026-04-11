@@ -18,6 +18,28 @@ _USER_DIR = Path.home() / ".hub-se-agent"
 _USER_PATH = _USER_DIR / "hub_config.json"
 
 
+def _derive_speakers_by_topic(topic_catalog: list[dict]) -> list[dict]:
+    """Build a lightweight speakers-by-topic view from the rich topic catalog."""
+    derived = []
+    for item in topic_catalog:
+        if not isinstance(item, dict):
+            continue
+        topic = item.get("topic_category") or item.get("topic") or ""
+        speakers = []
+        for speaker in item.get("speakers", []):
+            if isinstance(speaker, dict):
+                name = str(speaker.get("name", "")).strip()
+                if name:
+                    speakers.append(name)
+            elif isinstance(speaker, str):
+                name = speaker.strip()
+                if name:
+                    speakers.append(name)
+        if topic:
+            derived.append({"topic": topic, "speakers": speakers})
+    return derived
+
+
 def load() -> dict:
     """Return merged config (defaults + user overrides)."""
     config = {}
@@ -36,13 +58,20 @@ def load() -> dict:
         except Exception as e:
             logger.warning("Failed to read user config: %s", e)
 
+    topic_catalog = config.get("topic_catalog")
+    if isinstance(topic_catalog, list):
+        config["speakers_by_topic"] = _derive_speakers_by_topic(topic_catalog)
+
     return config
 
 
 def save(config: dict) -> None:
     """Persist user config to ~/.hub-se-agent/hub_config.json."""
+    config_to_save = dict(config)
+    # Persist only the richer catalog to avoid manual duplication.
+    config_to_save.pop("speakers_by_topic", None)
     _USER_DIR.mkdir(parents=True, exist_ok=True)
     _USER_PATH.write_text(
-        json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
+        json.dumps(config_to_save, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     logger.info("User config saved to %s", _USER_PATH)

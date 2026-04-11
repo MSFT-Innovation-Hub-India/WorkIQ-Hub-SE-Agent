@@ -419,6 +419,7 @@ def _run_skill(skill: Skill, user_input: str, on_progress=None) -> str:
         api_kwargs["reasoning"] = {"effort": skill.reasoning_effort}
     response = client.responses.create(**api_kwargs)
 
+
     # Tool-call loop (only if skill has tools)
     if tools:
         step = 1
