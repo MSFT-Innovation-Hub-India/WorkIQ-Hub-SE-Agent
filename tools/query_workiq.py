@@ -66,7 +66,8 @@ def handle(arguments: dict, *, on_progress=None, workiq_cli=None, **kwargs) -> s
         return "Error: workiq CLI not found. Install it or set WORKIQ_PATH in .env"
     logger.info("[WorkIQ] Querying: %s", question[:200])
     if on_progress:
-        on_progress("tool", f"Querying WorkIQ: {question[:200]}")
+        preview = question[:120] + "..." if len(question) > 120 else question
+        on_progress("tool", f"Querying WorkIQ: {preview}")
     # Sanitize Unicode chars that cause mojibake on Windows CLI
     question = _sanitize_for_cli(question)
     try:

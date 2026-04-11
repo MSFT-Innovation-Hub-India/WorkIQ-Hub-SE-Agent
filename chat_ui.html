@@ -331,6 +331,7 @@
   }
   .skills-list.open {
     max-height: 300px;
+    overflow-y: auto;
     padding: 0 20px 8px 20px;
   }
   .skill-item {
@@ -753,9 +754,13 @@
 
       case 'task_started': {
         setStatus('working', 'Working...');
-        // If there's already a bubble for this request (from task_queued), reuse it
-        let bubble = getBubble(rid);
-        if (!bubble) {
+        // Adopt the pending "Thinking..." bubble if present
+        let bubble = getBubble(rid) || getBubble('__pending');
+        if (bubble) {
+          activeBubbles.delete('__pending');
+          setBubble(rid, bubble);
+          markLastStepDone(bubble);
+        } else {
           bubble = addAgentMessage('');
           setBubble(rid, bubble);
         }
@@ -990,6 +995,12 @@
     ws.send(JSON.stringify({ type: 'task', input: text }));
     input.value = '';
     input.style.height = 'auto';
+    // Show immediate thinking indicator while waiting for server response
+    setStatus('working', 'Thinking...');
+    const bubble = addAgentMessage('');
+    const tempRid = '__pending';
+    setBubble(tempRid, bubble);
+    addStep(bubble, 'working', 'Thinking...');
   }
 
   function usePrompt(chip) {

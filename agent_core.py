@@ -286,7 +286,7 @@ logger.info("Skills loaded: %s", list(_skills.keys()))
 
 
 def get_loaded_skills() -> list[dict]:
-    """Return a summary of all loaded skills for the UI."""
+    """Return a summary of all loaded skills for the UI (excludes internal skills)."""
     return [
         {
             "name": s.name,
@@ -295,6 +295,7 @@ def get_loaded_skills() -> list[dict]:
             "tools": s.tool_names,
         }
         for s in _skills.values()
+        if not s.description.startswith("[INTERNAL")
     ]
 
 
