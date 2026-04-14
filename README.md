@@ -43,20 +43,7 @@ Platforms like Claude CoWork and OpenClaw are defining the next wave of AI — a
 
 ## The Two-Part Architecture
 
-```
-  ┌──────────────────────────────────┐       ┌──────────────────────────────────┐
-  │         Part 2 (Cloud)           │       │        Part 1 (Desktop)          │
-  │                                  │       │   ← THIS REPOSITORY →            │
-  │   Microsoft Teams                │       │                                  │
-  │     ↕                            │       │   WorkIQ-Hub-SE-Agent            │
-  │   Teams Relay Service            │       │     • Skills-driven sub-agents   │
-  │     ↕                            │       │     • FIFO task queue            │
-  │   Azure Managed Redis            │◄─────►│     • Redis bridge (inbox/outbox)│
-  │     inbox:{email}                │       │     • Tool execution layer       │
-  │     outbox:{email}               │       │     • Local chat UI (pywebview)  │
-  │     agents:{email}               │       │     • Toast notifications        │
-  └──────────────────────────────────┘       └──────────────────────────────────┘
-```
+![Solution Architecture](docs/architecture.png)
 
 **Part 1** (this repo) is the agent itself — running on a Windows 11 laptop, processing tasks locally with full access to the user's Microsoft 365 data via WorkIQ. It registers its presence in Azure Managed Redis and polls an inbox stream for remote requests.
 
