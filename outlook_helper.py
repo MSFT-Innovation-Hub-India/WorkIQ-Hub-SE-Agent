@@ -202,3 +202,42 @@ def create_outlook_meeting(subject: str, start: str, end: str, recipients: list[
     result = poller.result()
 
     logger.info("[ACS] Sent successfully (message_id: %s...)", result.get('id', 'unknown')[:30])
+
+
+def send_email(subject: str, body_html: str, recipients: list[str],
+               body_plain: str | None = None) -> str:
+    """
+    Send a plain email via Azure Communication Services on behalf of the
+    logged-in user.  Returns the ACS message ID on success.
+    """
+    organizer_name, organizer_email = _resolve_organizer()
+
+    if not body_plain:
+        # Strip HTML tags for a basic plain-text fallback
+        import re
+        body_plain = re.sub(r"<[^>]+>", "", body_html)
+
+    message = {
+        "senderAddress": ACS_SENDER_ADDRESS,
+        "replyTo": [{"address": organizer_email, "displayName": organizer_name}],
+        "recipients": {
+            "to": [{"address": addr} for addr in recipients],
+        },
+        "content": {
+            "subject": subject,
+            "plainText": body_plain,
+            "html": body_html,
+        },
+    }
+
+    logger.info("[ACS] Sending email: %s", subject)
+    logger.info("      To: %s", ", ".join(recipients))
+    logger.info("      On behalf of: %s <%s>", organizer_name, organizer_email)
+
+    client = _get_email_client()
+    poller = client.begin_send(message)
+    result = poller.result()
+
+    msg_id = result.get("id", "unknown")
+    logger.info("[ACS] Email sent (message_id: %s...)", msg_id[:30])
+    return msg_id

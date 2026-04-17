@@ -81,16 +81,20 @@ def _get_app_token(tenant_id: str, client_id: str, client_secret: str) -> str | 
 
 
 def _load_config() -> dict:
-    config = {}
+    _KEYS = ("GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET", "GRAPH_USER_UPN")
+    config: dict[str, str] = {}
     try:
         import hub_config
         cfg = hub_config.load()
-        for key in ("GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET", "GRAPH_USER_UPN"):
-            config[key] = cfg.get(key, "")
+        for key in _KEYS:
+            val = cfg.get(key, "")
+            if val:
+                config[key] = val
     except Exception:
         pass
-    for key in ("GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET", "GRAPH_USER_UPN"):
-        config.setdefault(key, os.environ.get(key, ""))
+    for key in _KEYS:
+        if key not in config:
+            config[key] = os.environ.get(key, "")
     return config
 
 
@@ -170,26 +174,39 @@ def _send_sharing_email(token: str, upn: str, recipients: list[str],
     return r.status_code in (200, 202)
 
 
-def _fallback_workiq_share(file_path: str, recipients: list[str],
-                            message: str, on_progress=None) -> str:
+def _fallback_acs_share(file_path: str, recipients: list[str],
+                        message: str, on_progress=None) -> str:
     """
-    Fallback: use WorkIQ to notify team members via Teams message when
-    Graph API credentials are not configured.
+    Fallback: send a sharing notification email via Azure Communication
+    Services when Graph API credentials are not configured.
     """
-    import importlib
-    qw = importlib.import_module("tools.query_workiq")
+    from pathlib import Path
+    filename = Path(file_path).name
 
-    import hub_config
-    cfg = hub_config.load()
-    workiq_cli = cfg.get("workiq_cli_path", "workiq")
-
-    recipients_str = ", ".join(recipients)
-    question = (
-        f"Send a Teams message or email to the following people: {recipients_str}. "
-        f"The message is: {message} The document is saved at: {file_path}"
+    subject = f"[Bid Brief] {filename}"
+    body_html = (
+        f"<p>{message}</p>"
+        f"<p><strong>Document:</strong> {filename}</p>"
+        f"<p style='font-size:11px;color:#666;'>"
+        f"This document was prepared by the Contoso Engineering RFP Evaluation Agent. "
+        f"The file is saved in OneDrive at: {file_path}</p>"
     )
-    result = qw.handle({"question": question}, on_progress=on_progress, workiq_cli=workiq_cli)
-    return result
+
+    try:
+        import outlook_helper
+        msg_id = outlook_helper.send_email(
+            subject=subject,
+            body_html=body_html,
+            recipients=recipients,
+        )
+        return (
+            f"Sharing notification sent via ACS email.\n"
+            f"Recipients: {', '.join(recipients)}\n"
+            f"Message ID: {msg_id}"
+        )
+    except Exception as e:
+        logger.error("[ShareDoc] ACS email fallback failed: %s", e, exc_info=True)
+        return f"Error: Could not send sharing notification via ACS: {e}"
 
 
 def handle(arguments: dict, *, on_progress=None, **kwargs) -> str:
@@ -210,10 +227,10 @@ def handle(arguments: dict, *, on_progress=None, **kwargs) -> str:
 
     # If Graph credentials not configured, fall back to WorkIQ notification
     if not all([tenant_id, client_id, client_secret, upn]):
-        logger.info("[ShareDoc] Graph credentials not configured — using WorkIQ fallback")
+        logger.info("[ShareDoc] Graph credentials not configured — using ACS email fallback")
         if on_progress:
-            on_progress("tool", "Graph not configured — notifying team via WorkIQ")
-        return _fallback_workiq_share(file_path, recipients, message, on_progress)
+            on_progress("tool", "Graph not configured — sending notification via ACS email")
+        return _fallback_acs_share(file_path, recipients, message, on_progress)
 
     results = []
     try:

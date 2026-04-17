@@ -68,6 +68,41 @@ PORT = 18080
 
 _clients: set = set()
 _loop: asyncio.AbstractEventLoop | None = None
+
+# ---------------------------------------------------------------------------
+# WebSocket log handler — streams log lines to the UI in real-time
+# ---------------------------------------------------------------------------
+
+_LOG_RING_SIZE = 500
+_log_ring: list[dict] = []          # ring buffer of recent log entries
+_log_ring_lock = threading.Lock()
+
+
+class _WebSocketLogHandler(logging.Handler):
+    """Logging handler that broadcasts every log record to connected UI clients."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            entry = {
+                "ts": self.format(record).split("]")[0].lstrip("[") if "]" in self.format(record) else record.created,
+                "level": record.levelname,
+                "msg": record.getMessage(),
+            }
+            with _log_ring_lock:
+                _log_ring.append(entry)
+                if len(_log_ring) > _LOG_RING_SIZE:
+                    del _log_ring[: len(_log_ring) - _LOG_RING_SIZE]
+            # Broadcast to UI
+            if _loop and _clients:
+                _broadcast({"type": "log_entry", "entry": entry})
+        except Exception:
+            pass  # never break the app because of log streaming
+
+
+_ws_log_handler = _WebSocketLogHandler()
+_ws_log_handler.setLevel(logging.INFO)
+_ws_log_handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(message)s", datefmt="%H:%M:%S"))
+logging.getLogger("hub_se_agent").addHandler(_ws_log_handler)
 _window = None  # pywebview window reference
 
 
@@ -226,6 +261,13 @@ async def _handler(ws):
                 await ws.send(json.dumps({
                     "type": "history_cleared",
                     "message": "Conversation history cleared.",
+                }))
+            elif msg.get("type") == "get_logs":
+                with _log_ring_lock:
+                    snapshot = list(_log_ring)
+                await ws.send(json.dumps({
+                    "type": "log_history",
+                    "entries": snapshot,
                 }))
             elif msg.get("type") == "get_config":
                 config = hub_config.load()

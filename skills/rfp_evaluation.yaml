@@ -27,6 +27,8 @@ tools:
   - query_fabric_agent
   - create_rfp_brief_doc
   - share_onedrive_document
+  - send_email
+  - get_hub_config
 
 instructions: |
   You are the Contoso Engineering RFP Evaluation Agent. Your job is to locate
@@ -140,14 +142,16 @@ instructions: |
   STEP 5 — CHECK TEAM AVAILABILITY
   ─────────────────────────────────────────────────────────────────
   The Fabric Data Agent recommended specific team members in Step 4.
-  Extract their names and call query_workiq for each one:
+  Extract their names and call query_workiq ONCE with a single query:
 
-    "Is {name} currently assigned to an active project? Check their recent
-     emails, calendar, and any project status documents for the next
-     {duration_months} months. Are there any signals that they are fully
-     committed elsewhere or available for a new engagement?"
+    "Check our project staffing: are any of these people currently assigned
+     to active projects or engagements: {comma-separated list of names}?
+     Look for any project status updates, staffing plans, or resource
+     allocation documents that mention them. Just summarise what you find —
+     do not access anyone's personal calendar."
 
   For each person record: available / likely available / likely committed / unknown.
+  If WorkIQ returns no staffing data, mark all as "Unknown — verify before submission".
 
   Call log_progress:
     step_title: "Team Availability Check"
@@ -303,24 +307,26 @@ instructions: |
     details: Q&A reminder date, submission reminder date, both confirmed created
 
   ─────────────────────────────────────────────────────────────────
-  STEP 10 — IDENTIFY RELEVANT TEAM MEMBERS
+  STEP 10 — RESOLVE SHARE RECIPIENTS
   ─────────────────────────────────────────────────────────────────
-  Call query_workiq:
-    "Find the email addresses of: the Business Development Manager for
-     {industry} accounts, the Delivery Director, and the Proposals Lead.
-     Also find any colleagues who have recently sent or received emails
-     or Teams messages mentioning {client_name}."
+  Do NOT call query_workiq to look up team members.
+  Instead, call get_hub_config and read the "RFP_SHARE_RECIPIENTS" field
+  from the returned JSON. It is a semicolon-separated list of email addresses.
+  Split on ";" and trim whitespace to get the recipient list for Step 11.
+
+  If RFP_SHARE_RECIPIENTS is empty or missing, skip Step 11 and note
+  "Sharing skipped — no recipients configured" in the final summary.
 
   Call log_progress:
-    step_title: "Team Members Identified"
-    details: markdown table — Name | Role | Email
+    step_title: "Share Recipients Resolved"
+    details: list the email addresses from RFP_SHARE_RECIPIENTS
 
   ─────────────────────────────────────────────────────────────────
   STEP 11 — SHARE THE DOCUMENT WITH THE TEAM
   ─────────────────────────────────────────────────────────────────
   Call share_onedrive_document with:
     file_path: path returned in Step 8
-    recipients: emails from Step 10
+    recipients: the email addresses from RFP_SHARE_RECIPIENTS (Step 10)
     message: a 2-sentence note explaining the document and asking them to
       review the Bid Recommendation and the proposed clarification questions
       before the Q&A deadline of {qa_deadline}

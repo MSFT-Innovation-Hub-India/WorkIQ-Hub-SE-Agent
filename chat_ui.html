@@ -631,6 +631,7 @@
       <div class="settings-tabs">
         <button class="settings-tab-btn active" id="settingsTabGeneralBtn" onclick="setSettingsTab('general')">General</button>
         <button class="settings-tab-btn" id="settingsTabCatalogBtn" onclick="setSettingsTab('catalog')">Topic Catalog</button>
+        <button class="settings-tab-btn" id="settingsTabLogsBtn" onclick="setSettingsTab('logs')">Logs</button>
       </div>
 
       <div class="settings-tab-content active" id="settingsTabGeneral">
@@ -658,6 +659,23 @@
         </div>
         <div id="topicCatalogBody"></div>
         <button class="add-row-btn" onclick="addTopicCatalogRow()">+ Add catalog item</button>
+      </div>
+
+      <div class="settings-tab-content" id="settingsTabLogs">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:11px;color:var(--text-secondary);">Real-time agent log stream (last 500 entries)</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <label style="font-size:11px;color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;gap:4px;">
+              <input type="checkbox" id="logAutoScroll" checked style="margin:0;"> Auto-scroll
+            </label>
+            <button class="add-row-btn" style="margin:0;" onclick="clearLogViewer()">Clear</button>
+          </div>
+        </div>
+        <div id="logViewer" style="
+          background:#1e1e1e; color:#d4d4d4; font-family:'Cascadia Code','Fira Code','Consolas',monospace;
+          font-size:11.5px; line-height:1.55; padding:10px 12px; border-radius:8px;
+          height:380px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;
+        "></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -867,6 +885,17 @@
           document.getElementById('saveStatus').style.color = 'var(--error)';
         }
         break;
+
+      case 'log_entry':
+        appendLogEntry(msg.entry);
+        break;
+
+      case 'log_history': {
+        const viewer = document.getElementById('logViewer');
+        if (viewer) viewer.innerHTML = '';
+        (msg.entries || []).forEach(e => appendLogEntry(e));
+        break;
+      }
     }
   }
 
@@ -1114,18 +1143,51 @@
   }
 
   function setSettingsTab(tabName) {
-    const generalBtn = document.getElementById('settingsTabGeneralBtn');
-    const catalogBtn = document.getElementById('settingsTabCatalogBtn');
-    const generalTab = document.getElementById('settingsTabGeneral');
-    const catalogTab = document.getElementById('settingsTabCatalog');
+    const tabs = ['general', 'catalog', 'logs'];
     const modal = document.querySelector('#settingsModal .modal');
+    tabs.forEach(t => {
+      const btn = document.getElementById('settingsTab' + t.charAt(0).toUpperCase() + t.slice(1) + 'Btn');
+      const pane = document.getElementById('settingsTab' + t.charAt(0).toUpperCase() + t.slice(1));
+      if (btn) btn.classList.toggle('active', t === tabName);
+      if (pane) pane.classList.toggle('active', t === tabName);
+    });
+    modal.classList.toggle('wide', tabName === 'catalog' || tabName === 'logs');
+    // When switching to Logs tab, request log history
+    if (tabName === 'logs' && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'get_logs' }));
+    }
+  }
 
-    const showGeneral = tabName === 'general';
-    generalBtn.classList.toggle('active', showGeneral);
-    catalogBtn.classList.toggle('active', !showGeneral);
-    generalTab.classList.toggle('active', showGeneral);
-    catalogTab.classList.toggle('active', !showGeneral);
-    modal.classList.toggle('wide', !showGeneral);
+  // ---- Log viewer helpers ----
+  const _LOG_LEVEL_COLORS = {
+    DEBUG: '#569cd6', INFO: '#6a9955', WARNING: '#dcdcaa', ERROR: '#f44747', CRITICAL: '#f44747',
+  };
+  const _LOG_MAX_LINES = 500;
+
+  function appendLogEntry(entry) {
+    const viewer = document.getElementById('logViewer');
+    if (!viewer) return;
+    const line = document.createElement('div');
+    const color = _LOG_LEVEL_COLORS[entry.level] || '#d4d4d4';
+    const ts = typeof entry.ts === 'string' ? entry.ts : '';
+    // Escape HTML to prevent XSS from log messages
+    const escaped = (entry.msg || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    line.innerHTML = `<span style="color:#858585;">${ts}</span> <span style="color:${color};font-weight:600;">${entry.level}</span> ${escaped}`;
+    viewer.appendChild(line);
+    // Trim old lines
+    while (viewer.childElementCount > _LOG_MAX_LINES) {
+      viewer.removeChild(viewer.firstChild);
+    }
+    // Auto-scroll if enabled
+    const autoScroll = document.getElementById('logAutoScroll');
+    if (autoScroll && autoScroll.checked) {
+      viewer.scrollTop = viewer.scrollHeight;
+    }
+  }
+
+  function clearLogViewer() {
+    const viewer = document.getElementById('logViewer');
+    if (viewer) viewer.innerHTML = '';
   }
 
   function speakersToText(speakers) {
